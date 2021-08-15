@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31005.135
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MelBoxGsm", "MelBoxGsm\MelBoxGsm.csproj", "{67AE48F4-6038-4175-98C4-358211E6F2A3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{67AE48F4-6038-4175-98C4-358211E6F2A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{67AE48F4-6038-4175-98C4-358211E6F2A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{67AE48F4-6038-4175-98C4-358211E6F2A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{67AE48F4-6038-4175-98C4-358211E6F2A3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {11A867E5-B598-449A-B379-FDDBAEC01931}
+	EndGlobalSection
+EndGlobal
