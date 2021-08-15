@@ -10,7 +10,7 @@ namespace MelBoxGsm
     public class ReliableSerialPort : SerialPort
     {
         #region Connection
-        public ReliableSerialPort(string portName, int baudRate, Parity parity, int dataBits, StopBits stopBits)
+        public ReliableSerialPort(string portName = "", int baudRate = 38400, Parity parity = Parity.None, int dataBits = 8, StopBits stopBits = StopBits.One)
         {
             #region COM-Port verifizieren
             string[] ports = System.IO.Ports.SerialPort.GetPortNames();

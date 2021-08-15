@@ -1,14 +1,42 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
+using System.Timers;
 
 namespace MelBoxGsm
 {
     public partial class Gsm
     {
+
+        /// <summary>
+        /// Timer für zyklische Modemabfrage
+        /// </summary>
+        static readonly Timer askingTimer = new Timer(19000);
+
+        /// <summary>
+        /// Gibt eine Reihe von Anweisungen an das GSM-Modem, bevor andere Operationen ausgeführt werden.
+        /// </summary>
+        public static void SetupModem()
+        {
+            //Modem
+            GetModemType();
+            SetErrorFormat();
+
+            //SIM-Karte
+            GetOwnNumber();
+            GetProviderName();
+            GetSmsServiceCenterAddress();
+            SetGsmMemory();
+            SetCallRelay(CallForwardingNumber);
+
+            #region Regelmäßige Anfragen an das Modem
+            askingTimer.Elapsed += new ElapsedEventHandler(CheckNetworkConnection);
+            askingTimer.AutoReset = true;
+            askingTimer.Start();
+            #endregion
+
+        }
+
 
         /// <summary>
         /// Versendet eine SMS. Nach Absenden wird das Ereignis 'SmsSentEvent' ausgelöst
@@ -17,14 +45,20 @@ namespace MelBoxGsm
         /// <param name="message">Inhalt der SMS</param>
         public static void SendSms(string phone, string message)
         {
-            SmsOut sms = new SmsOut
+            MatchCollection mc = Regex.Matches(phone, @"\+(\d+)");
+            if (mc.Count == 0)
+                Log.Warning($">{phone}< ist keine gültige Telefonnummer. Es wird keine SMS versand! >{message}<", 2108152050);
+            else
             {
-                Phone = phone,
-                Message = message
-            };
+                SmsOut sms = new SmsOut
+                {
+                    Phone = phone,
+                    Message = message
+                };
 
-            sendList.Enqueue(sms);
-
+                sendList.Enqueue(sms);
+            }
+            
             SendList();
         }
 
@@ -160,12 +194,12 @@ namespace MelBoxGsm
         }
 
 
-        public static void CheckNetworkConnection()
+        public static void CheckNetworkConnection(object sender, ElapsedEventArgs e)
         {
+            Console.WriteLine(e.SignalTime); //Als Lebenszeichen an Console
+            
             if (HasSignalQualityChanged() || HasNetworkRegistrationChanged())
                 NetworkStatusEvent?.Invoke(null, EventArgs.Empty);
-
-
         }
 
     }

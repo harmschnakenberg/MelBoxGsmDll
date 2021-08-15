@@ -1,10 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using System.Timers;
 
 namespace MelBoxGsm
 {
@@ -12,12 +8,8 @@ namespace MelBoxGsm
     {
         const string ctrlz = "\u001a";
 
-        private static readonly ReliableSerialPort Port = null;
+        private static readonly ReliableSerialPort Port = new ReliableSerialPort(SerialPortName);
 
-        /// <summary>
-        /// Timer für zyklische Modemabfrage
-        /// </summary>
-        static readonly Timer askingTimer = new Timer(19000);
 
         /// <summary>
         /// Zum Senden anstehende SMS
