@@ -190,6 +190,7 @@ namespace MelBoxGsm
 
             #endregion
 
+            SmsRecievedEvent?.Invoke(null, newSms);
             return newSms;
         }
 
@@ -200,6 +201,8 @@ namespace MelBoxGsm
             
             if (HasSignalQualityChanged() || HasNetworkRegistrationChanged())
                 NetworkStatusEvent?.Invoke(null, EventArgs.Empty);
+
+            _ = SmsRead();
         }
 
     }

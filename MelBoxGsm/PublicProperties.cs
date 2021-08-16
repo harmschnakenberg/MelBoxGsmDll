@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using System;
+using System.Linq;
 
 namespace MelBoxGsm
 {
@@ -16,9 +17,12 @@ namespace MelBoxGsm
         /// </summary>
         public static int MaxSendTrysPerSms { get; set; } = 2;
 
-        public static string AdminPhone { get; set; } = "+4916095285304";
+        /// <summary>
+        /// Muss 
+        /// </summary>
+        public static string AdminPhone { get; set; }
 
-        public static string CallForwardingNumber { get; set; } = "+4916095285304";
+        public static string CallForwardingNumber { get; set; }
 
         public static int SignalQuality { get; private set; }
 
@@ -46,6 +50,9 @@ namespace MelBoxGsm
 
         public static bool CallForwardingActive { get; private set; }
 
-
+        /// <summary>
+        /// Der Zuletzt vom Modem gemeldete Fehler mit Zeit der Meldung
+        /// </summary>
+        public static Tuple<DateTime, string> LastError { get; private set; }
     }
 }

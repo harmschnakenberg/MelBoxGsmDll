@@ -1,14 +1,12 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace MelBoxGsm
 {
     public partial class Gsm
     {
 
-        /// <summary>
-        /// Der Zuletzt vom Modem gemeldete Fehler mit Zeit der Meldung
-        /// </summary>
-        public static Tuple<DateTime, string> LastError { get; private set; }
+
 
         /// <summary>
         /// Wird ausgelöst, wenn vom GSM-Modem eine Fehlermeldung zurückggegeben wird.
@@ -19,6 +17,11 @@ namespace MelBoxGsm
         /// Wird ausgelöst, wenn eine SMS vom GSM-Modem losgeschickt wurde.
         /// </summary>
         public static event EventHandler<SmsOut> SmsSentEvent;
+
+        /// <summary>
+        /// Wird ausgelöst, wenn eine SMS vom GSM-Modem empfangen wurde.
+        /// </summary>
+        public static event EventHandler<List<SmsIn>> SmsRecievedEvent;
 
         /// <summary>
         /// Wird ausgelöst, wenn ein Statusreport (Empfangsbestätigung) einer gesendeten SMS empfangen wird.
