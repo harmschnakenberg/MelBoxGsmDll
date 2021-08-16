@@ -8,8 +8,8 @@ namespace TestMelBoxGsmDll
     {
         static void Main()
         {
-            Gsm.AdminPhone = "+4916095285304";
-            Gsm.CallForwardingNumber = "+4916095285304";
+            Gsm.AdminPhone = "+49...";
+            Gsm.CallForwardingNumber = "+49...";
 
             Gsm.SetupModem();
 
