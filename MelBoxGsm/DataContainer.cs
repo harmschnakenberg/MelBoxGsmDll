@@ -2,17 +2,29 @@
 
 namespace MelBoxGsm
 {
-    public partial class Gsm
+
+    public class SmsIn
     {
 
-        public class SmsIn
+        public int Index { get; set; }
+        public string Status { get; set; }
+        public DateTime TimeUtc { get; set; }
+       
+        private string _Phone = "";
+        public string Phone
         {
-            public int Index { get; set; }
-            public string Status { get; set; }
-            public DateTime TimeUtc { get; set; }
-            public string Phone { get; set; }
-            public string Message { get; set; }
+            get { return (_Phone.Length > 0 ? _Phone : "OHNE NUMMER"); }
+            set { _Phone = value; }
         }
+
+        private string _Message = "";
+        public string Message
+        {
+            get { return (_Message.Length > 0 ? _Message : "KEIN TEXT"); }
+            set { _Message = value; }
+        }
+
+    }
 
         public class SmsOut
         {
@@ -45,5 +57,5 @@ namespace MelBoxGsm
             public object Value { get; set; }
         }
 
-    }
+    
 }

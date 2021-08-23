@@ -9,13 +9,12 @@ namespace TestMelBoxGsmDll
         static void Main()
         {
             Gsm.AdminPhone = "+49...";
-            Gsm.CallForwardingNumber = "+49...";
 
-            Gsm.SetupModem();
+            Gsm.SetupModem("+49...");
 
-            List<Gsm.SmsIn> smsIn = Gsm.SmsRead();
+            List<SmsIn> smsIn = Gsm.SmsRead();
 
-            foreach (Gsm.SmsIn sms in smsIn)
+            foreach (SmsIn sms in smsIn)
             {
                 Console.WriteLine(sms.Message);
             }

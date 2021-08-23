@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace MelBoxGsm
 {
-    public partial class Gsm
+    public static partial class Gsm
     {
 
 
@@ -33,12 +33,12 @@ namespace MelBoxGsm
         /// </summary>
         public static event EventHandler NetworkStatusEvent;
 
-
         /// <summary>
         /// Wird ausgelöst, wenn für eine gesendete SMS keine Empfangsbestätigung bis zum Timeout empfangen wird.
         /// </summary>
         public static event EventHandler<SmsOut> FailedSmsSendEvent;
 
 
+        public static event EventHandler<string> NewCallRecieved;
     }
 }

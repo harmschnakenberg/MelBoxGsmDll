@@ -41,6 +41,8 @@ namespace MelBoxGsm
 
         }
 
+        public static byte Debug { get; set; } = 3;
+
         new public void Open()
         {
             int Try = 10;
@@ -50,13 +52,16 @@ namespace MelBoxGsm
                 try
                 {
                     base.Open();
+                    // ThreadPool.QueueUserWorkItem(ContinuousRead);
                     ContinuousRead();
                 }
+#pragma warning disable CA1031 // Do not catch general exception types
                 catch
                 {
                     Console.WriteLine(base.PortName + " verbleibende Verbindungsversuche: " + Try);
                     System.Threading.Thread.Sleep(2000);
                 }
+#pragma warning restore CA1031 // Do not catch general exception types
             } while (!base.IsOpen && --Try > 0);
         }
 
@@ -65,26 +70,34 @@ namespace MelBoxGsm
         #region Read
         private void ContinuousRead()
         {
+
             try
             {
+               // ThreadPool.QueueUserWorkItem(delegate (object unused) {
                 byte[] buffer = new byte[4096];
-                Action kickoffRead = null;
-                kickoffRead = (Action)(() => BaseStream.BeginRead(buffer, 0, buffer.Length, delegate (IAsyncResult ar)
+                void kickoffRead() => BaseStream.BeginRead(buffer, 0, buffer.Length, delegate (IAsyncResult ar)
                 {
                     try
                     {
-                        if (!IsOpen) return; //Wenn beim Lesen die Verbindung abbricht.
+                            //if (!IsOpen) return; //Wenn beim Lesen die Verbindung abbricht.
 
-                        int count = BaseStream.EndRead(ar);
+                            int count = BaseStream.EndRead(ar);
                         byte[] dst = new byte[count];
                         Buffer.BlockCopy(buffer, 0, dst, 0, count);
                         OnDataReceived(dst);
                     }
-                    catch (System.OperationCanceledException)
+#pragma warning disable CA1031 // Do not catch general exception types
+                        catch (System.IO.IOException)
                     {
-                        // nichts unternehmen
-                    }
-                    catch (Exception exception)
+                            // Thread wurde beendet - nichts unternehmen
+                        }
+                    catch (OperationCanceledException)
+                    {
+                            // nichts unternehmen
+                        }
+#pragma warning restore CA1031 // Do not catch general exception types
+#pragma warning disable CA1031 // Do not catch general exception types
+                        catch (Exception exception)
                     {
                         Console.WriteLine("ContinuousRead(): Lesefehler Bitstream von COM-Port:\r\n" +
                             ">" + System.Text.Encoding.UTF8.GetString(buffer) + "<" + Environment.NewLine +
@@ -94,12 +107,16 @@ namespace MelBoxGsm
                             exception.Source + Environment.NewLine +
                             exception.StackTrace);
 
-                        Log.Error($"Lesefehler COM-Port in Bitstream bei >{buffer}<", 2108141918);
+                        Log.Error($"Lesefehler COM-Port in Bitstream bei >{System.Text.Encoding.UTF8.GetString(buffer)}<", 41918);
                     }
+#pragma warning restore CA1031 // Do not catch general exception types
 
-                    kickoffRead();
-                }, null)); kickoffRead();
+                        kickoffRead();
+                }, null);
+                kickoffRead();
+               // });
             }
+#pragma warning disable CA1031 // Do not catch general exception types
             catch (Exception exception)
             {
                 Console.WriteLine("ContinuousRead(): Lesefehler bei Beginn. COM-Port:\r\n" +
@@ -109,9 +126,35 @@ namespace MelBoxGsm
                     exception.Source + Environment.NewLine +
                     exception.StackTrace);
 
-                Log.Error($"Lesefehler an COM-Port: {exception.Message}", 2108141919);
+                Log.Error($"Lesefehler an COM-Port: {exception.Message}", 41919);
             }
+#pragma warning restore CA1031 // Do not catch general exception types
         }
+
+        /* private void ContinuousRead2()
+        {
+            ThreadPool.QueueUserWorkItem(async delegate (object unused)
+            {
+                byte[] buffer = new byte[4096];
+
+                while (true)
+                {
+                    try
+                    {
+                        int count = await BaseStream.ReadAsync(buffer, 0, buffer.Length);
+                        byte[] dst = new byte[count];
+                        Buffer.BlockCopy(buffer, 0, dst, 0, count);
+
+                        OnDataReceived(dst);
+                    }
+                    catch
+                    { 
+                        //nichts unternehmen
+                    }
+                }
+            });
+        }
+        //*/
 
         public const string Terminator = "\r\nOK\r\n";
         static string recLine = string.Empty;
@@ -132,8 +175,11 @@ namespace MelBoxGsm
 
             //Melde empfangne Daten, wenn...
             if (recLine.Contains(Terminator))
-                if (_wait.Set()) Console.WriteLine("Set");
+                _wait.Set();
+            //if (_wait.Set()) Console.WriteLine("Set");
 
+            if (recLine.Contains("^SCKS: ") || recLine.Contains("+CMTI: ") || recLine.Contains("+CDSI: ") || recLine.Contains("+CLIP: "))
+                Gsm.UnsolicatedEvent(recLine);
         }
 
         #endregion
@@ -144,20 +190,21 @@ namespace MelBoxGsm
 
         public string Ask(string request, int timeout = 3000)
         {
-            if (!IsOpen) Open();
-
+            if (!base.IsOpen) Open();
+             
             base.DiscardOutBuffer();
             base.DiscardInBuffer();
 
             base.WriteLine(request);
 
             _wait.Reset();
-#if DEBUG
-            Console.ForegroundColor = ConsoleColor.DarkRed;
-            Console.WriteLine(request);
-            Console.ForegroundColor = ConsoleColor.Gray;
-#endif
 
+            if (Debug >> 1 > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkRed;
+                Console.WriteLine(request);
+                Console.ForegroundColor = ConsoleColor.Gray;
+            }
 
             if (!_wait.WaitOne(timeout))
             {
@@ -165,11 +212,14 @@ namespace MelBoxGsm
                 Console.WriteLine("Timeout");
 #endif
             }
-#if DEBUG
-            Console.ForegroundColor = ConsoleColor.DarkGreen;
-            Console.WriteLine(recLine);
-            Console.ForegroundColor = ConsoleColor.Gray;
-#endif
+
+            if (Debug >> 0 > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGreen;
+                Console.WriteLine(recLine);
+                Console.ForegroundColor = ConsoleColor.Gray;
+            }
+
             string x = recLine;
             recLine = string.Empty;
             return x;

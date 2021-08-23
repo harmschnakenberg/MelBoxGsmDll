@@ -5,29 +5,38 @@ using System.Timers;
 
 namespace MelBoxGsm
 {
-    public partial class Gsm
+    public static partial class Gsm
     {
 
         /// <summary>
         /// Timer für zyklische Modemabfrage
         /// </summary>
-        static readonly Timer askingTimer = new Timer(19000);
+        static readonly Timer askingTimer = new Timer(19999);// wenn unsolicated SMS-Delivery +CMTI: / StatusReport +CDSI: funktioniert ca 1 Minute, sonst 10-30 sec?
+
 
         /// <summary>
         /// Gibt eine Reihe von Anweisungen an das GSM-Modem, bevor andere Operationen ausgeführt werden.
         /// </summary>
-        public static void SetupModem()
+        public static void SetupModem(string callForwardingNumber)
         {
+            Log.Info($"Modem wird an {SerialPortName} initialisiert.", 1245);
+
             //Modem
             GetModemType();
             SetErrorFormat();
+            SetSimTrayNotification();
 
             //SIM-Karte
+            GetSimPinStatus("0000");
             GetOwnNumber();
             GetProviderName();
             GetSmsServiceCenterAddress();
             SetGsmMemory();
-            SetCallRelay(CallForwardingNumber);
+            CheckNetworkConnection(null, null);
+            SetCallRelay(callForwardingNumber);
+
+            SetIncomingCallNotification();
+            SetNewSmsRecNotification();
 
             #region Regelmäßige Anfragen an das Modem
             askingTimer.Elapsed += new ElapsedEventHandler(CheckNetworkConnection);
@@ -43,11 +52,11 @@ namespace MelBoxGsm
         /// </summary>
         /// <param name="phone">Telefonnummer in internationaler Schreibweise z.B. +49160...</param>
         /// <param name="message">Inhalt der SMS</param>
-        public static void SendSms(string phone, string message)
+        public static void SmsSend(string phone, string message)
         {
             MatchCollection mc = Regex.Matches(phone, @"\+(\d+)");
             if (mc.Count == 0)
-                Log.Warning($">{phone}< ist keine gültige Telefonnummer. Es wird keine SMS versand! >{message}<", 2108152050);
+                Log.Warning($">{phone}< ist keine gültige Telefonnummer. Es wird keine SMS versand! >{message}<", 52050);
             else
             {
                 SmsOut sms = new SmsOut
@@ -72,65 +81,7 @@ namespace MelBoxGsm
         {
             string answer = Port.Ask($"AT+CMGL=\"{filter}\"");
 
-            #region StatusReport
-
-            //Statusreport:
-            //+CMGL: < index > ,  < stat > ,  < fo > ,  < mr > , [ < ra > ], [ < tora > ],  < scts > ,  < dt > ,  < st >
-            //[... ]
-            //OK
-            //z.B.: +CMGL: 1,"REC READ",6,34,,,"20/11/06,16:08:45+04","20/11/06,16:08:50+04",0
-
-            //\+CMGL: (\d+),"(.+)",(\d+),(\d+),,,"(.+),(.+)([\+-]\d+)","(.+),(.+)([\+-]\d+)",(\d+)
-            //getestet: @"\+CMGL: (\d+),(.+),(\d+),(\d+),,,(.+),(.+)([\+-].+),(.+),(.+)([\+-].+),(\d)"
-            MatchCollection reports = Regex.Matches(answer, @"\+CMGL: (\d+),(.+),(\d+),(\d+),,,(.+),(.+)([\+-].+),(.+),(.+)([\+-].+),(\d)");
-
-            List<Report> newReports = new List<Report>();
-
-            foreach (Match m in reports)
-            {
-                try
-                {
-                    int index = int.Parse(m.Groups[1].Value);
-                    string status = m.Groups[2].Value.Trim('"');
-                    int firstOctet = int.Parse(m.Groups[3].Value); // Bedeutung?
-                    int reference = int.Parse(m.Groups[4].Value);
-                    string dateCenter = "20" + m.Groups[5].Value.Trim('"').Replace('/', '-');
-                    string timeCenter = m.Groups[6].Value;
-                    int zoneCenter = int.Parse(m.Groups[7].Value.Trim('"')) / 4;
-                    string dateDischarge = "20" + m.Groups[8].Value.Trim('"').Replace('/', '-');
-                    string timeDischarge = m.Groups[9].Value;
-                    int zoneDischarge = int.Parse(m.Groups[10].Value.Trim('"')) / 4;
-                    int delviveryStatus = int.Parse(m.Groups[11].Value);
-
-                    _ = DateTime.TryParse(dateCenter + " " + timeCenter, out DateTime SmsCenterTime);
-                    _ = DateTime.TryParse(dateDischarge + " " + timeDischarge, out DateTime DischargeTime);
-
-                    Report report = new Report
-                    {
-                        Index = index,
-                        Status = status,
-                        Reference = reference,
-                        ServiceCenterTimeUtc = SmsCenterTime.AddHours(zoneCenter),
-                        DischargeTimeUtc = DischargeTime.AddHours(zoneDischarge),
-                        DeliveryStatus = delviveryStatus
-                    };
-
-                    Console.WriteLine($"Empfangsbestätigung erhalten für ID[{reference}]: " + (delviveryStatus > 63 ? "Senden fehlgeschlagen" : delviveryStatus > 31 ? "senden im Gange" : "erfolgreich versendet"));
-                    newReports.Add(report);
-                }
-                catch (Exception)
-                {
-#if DEBUG
-                    throw;
-#else
-                    Log.Error("Fehler beim Abrufen von Statusreports aus GSM-Modem.", 2108142015);
-#endif
-                }
-            }
-
-            TrackSentSms(newReports);
-           
-            #endregion
+            ParseStatusReports(answer);
 
             #region Neue SMSen
 
@@ -144,7 +95,9 @@ namespace MelBoxGsm
             //Ein Test 08.11.2020 13:46 PS sms38.de
 
             //\+CMGL: (\d+),"(.+)","(.+)",(.*),"(.+),(.+)([\+-].{2})"\n(.+\n)+
-            MatchCollection mc = Regex.Matches(answer, "\\+CMGL: (\\d+),\"(.+)\",\"(.+)\",(.*),\"(.+),(.+)([\\+-].{ 2})\"\\r\\n(.+\\r\\n)+");
+            //     MatchCollection mc = Regex.Matches(answer, "\\+CMGL: (\\d+),\"(.+)\",\"(.+)\",(.*),\"(.+),(.+)([\\+-].{2})\"\\n(.+)");
+
+            MatchCollection mc = Regex.Matches(answer, @"\+CMGL: (\d+),""(.+)"",""(.+)"",(.*),""(.+),(.+)([\+-].{2})""\r\n(.+)");
 
             List<SmsIn> newSms = new List<SmsIn>();
 
@@ -161,7 +114,12 @@ namespace MelBoxGsm
                     string timeStr = m.Groups[6].Value;
                     int timeZone = int.Parse(m.Groups[7].Value.Trim('"')) / 4;
 
-                    string message = m.Groups[8].Value;
+                    string message = m.Groups[8].Value.TrimEnd('\r');
+
+                    if (message.StartsWith("00")) //UCS-Codiert?
+                        message = DecodeUcs2(message);
+
+                    message = DecodeUmlaute(message); //in GSM-Encoding korrigieren Umlaute
 
                     _ = DateTime.TryParse($"{dateStr} {timeStr}", out DateTime time);
 
@@ -172,38 +130,65 @@ namespace MelBoxGsm
                         Index = index,
                         Status = status,
                         Phone = phone,
-                        TimeUtc = time.AddHours(timeZone),
+                        TimeUtc = time.AddHours(-timeZone),
                         Message = message
                     };
 
                     newSms.Add(sms);
                 }
+#pragma warning disable CA1031 // Do not catch general exception types
                 catch (Exception)
                 {
 #if DEBUG
                     throw;
 #else
-                    Log.Error("Fehler beim Abrufen von SMS aus GSM-Modem.", 2108142017);
+                    Log.Error("Fehler beim Abrufen von SMS aus GSM-Modem.", 42017);
 #endif
                 }
+#pragma warning restore CA1031 // Do not catch general exception types
             }
 
             #endregion
 
-            SmsRecievedEvent?.Invoke(null, newSms);
+            if(newSms.Count > 0)
+                SmsRecievedEvent?.Invoke(null, newSms);
+            
             return newSms;
         }
 
 
-        public static void CheckNetworkConnection(object sender, ElapsedEventArgs e)
+        /// <summary>
+        /// Löscht die im Modem unter 'index' geführte SMS.
+        /// </summary>
+        /// <param name="index">Speicherplatz einer SMS in Modem oder SIM-Karte</param>
+        public static void SmsDelete(int index)
         {
-            Console.WriteLine(e.SignalTime); //Als Lebenszeichen an Console
-            
-            if (HasSignalQualityChanged() || HasNetworkRegistrationChanged())
-                NetworkStatusEvent?.Invoke(null, EventArgs.Empty);
-
-            _ = SmsRead();
+            _ = Port.Ask("AT+CMGD=" + index);
         }
 
+
+        private static void CheckNetworkConnection(object sender, ElapsedEventArgs e)
+        {
+            if (e != null) Console.WriteLine(e.SignalTime ); //Als Lebenszeichen an Console
+
+            bool networkStatus = false;
+            networkStatus &= HasNetworkRegistrationChanged();
+            networkStatus &= HasSignalQualityChanged();
+
+            if ( networkStatus )
+                NetworkStatusEvent?.Invoke(null, EventArgs.Empty);
+            
+            if (!CallForwardingActive && !IsCallRelayActive())
+                SetCallRelay(CallForwardingNumber);
+
+            List<SmsIn> smsIn = SmsRead("ALL");
+
+            foreach (SmsIn sms in smsIn)
+            {
+                Console.WriteLine($"Empfangene Sms: {sms.Index} - {sms.Phone}:\t{sms.Message}");
+            }
+        }
+
+       
     }
 }

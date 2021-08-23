@@ -4,8 +4,13 @@ using System.Text.RegularExpressions;
 
 namespace MelBoxGsm
 {
-    public partial class Gsm
+    public static partial class Gsm
     {
+
+        //Frage: Senden in UCS2-Encoding?
+        //siehe Quelle: https://www.smssolutions.net/tutorials/gsm/sendsmsat/
+
+
         const string ctrlz = "\u001a";
 
         private static readonly ReliableSerialPort Port = new ReliableSerialPort(SerialPortName);
@@ -33,23 +38,28 @@ namespace MelBoxGsm
             _ = Port.Ask("AT+CMGS=\"" + currentSendSms.Phone + "\"\r");
             string answer = Port.Ask(currentSendSms.Message + ctrlz, 5000);
 
-            MatchCollection mc = Regex.Matches(answer, @"\+CMGS: (\d+)");
+            Match m = Regex.Match(answer, @"\+CMGS: (\d+)");
 
-            if (mc.Count > 0 && int.TryParse(mc[0].Groups[1].Value, out int reference))
+            currentSendSms.SendTimeUtc = DateTime.UtcNow;
+            currentSendSms.SendTryCounter++;
+
+            if (m.Success && int.TryParse(m.Groups[1].Value, out int reference))
             {
                 currentSendSms.Reference = reference;
-                currentSendSms.SendTimeUtc = DateTime.UtcNow;
-                currentSendSms.SendTryCounter++;
 
                 trackingList.Add(currentSendSms);
 
-                SmsSentEvent?.Invoke(null, currentSendSms);
-                
 #if DEBUG
-                Console.WriteLine($"SMS-Refernez [{currentSendSms.Reference}] vergeben für gesendet >{currentSendSms.Phone}< >{currentSendSms.Message}<");
+                Console.WriteLine($"SMS-Referenz [{currentSendSms.Reference}] vergeben für gesendet >{currentSendSms.Phone}< >{currentSendSms.Message}<");
 #endif
-                currentSendSms = null;
             }
+            else
+            {
+                Log.Warning($"Der gesendeten SMS an >{currentSendSms.Phone}< >{currentSendSms.Message}< konnte keine Referenz zugeordnet werden. Es kann keine Empfangsbestätigung empfangen werden.", 815);
+            }
+
+            SmsSentEvent?.Invoke(null, currentSendSms);
+            currentSendSms = null;
 
             SendList();
         }

@@ -1,14 +1,12 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Timers;
 
 namespace MelBoxGsm
 {
-    public partial class Gsm
+    public static partial class Gsm
     {
-
-
-
-
 
         /// <summary>
         /// Fragt die Mobilnetzempfangsqualität ab. 
@@ -21,6 +19,8 @@ namespace MelBoxGsm
 
             if (mc.Count > 0 && int.TryParse(mc[0].Groups[1].Value, out int quality))
             {
+                quality = (int)(quality / 0.32); //in %
+
                 if (SignalQuality != quality)
                 {
                     SignalQuality = quality;
@@ -31,7 +31,7 @@ namespace MelBoxGsm
             return false;
         }
 
-        private static bool HasNetworkRegistrationChanged() //TESTEN
+        private static bool HasNetworkRegistrationChanged()
         {
             bool result = false;
             string answer = Port.Ask("AT+CREG?");
@@ -113,11 +113,22 @@ namespace MelBoxGsm
         /// <param name="answer">zu prüfende Ausgabe von Modem</param>
         internal static void ParseErrorResponse(string answer)
         {
-            MatchCollection mc = Regex.Matches(answer, @"\+CM[ES] ERROR: (.+)");
-            if (mc.Count > 0)
-                LastError = new Tuple<DateTime, string>(DateTime.Now, mc[0].Groups[1].Value.TrimEnd('\r'));
+            Match m = Regex.Match(answer, @"\+CM[ES] ERROR: (.+)");
+            if (m.Success)
+            {
+                var currentError = m.Groups[1].Value.TrimEnd('\r');
 
-            NewErrorEvent?.Invoke(null, $"{LastError.Item1.ToShortTimeString()}: {LastError.Item2}");
+                if (currentError != LastError.Item2) //Gleichen Fehler nur einmal melden
+                {
+                    LastError = new Tuple<DateTime, string>(DateTime.Now, m.Groups[1].Value.TrimEnd('\r'));
+
+                    NewErrorEvent?.Invoke(null, $"{LastError.Item1.ToShortTimeString()}: {LastError.Item2}");
+                }
+                else
+                {
+                    LastError = new Tuple<DateTime, string>(DateTime.Now, LastError.Item2); //nur Zeit aktualisieren
+                }
+            }
         }
 
         /// <summary>
@@ -257,11 +268,10 @@ namespace MelBoxGsm
             }
         }
 
-        private static bool IsCallRelayActive() //TESTEN
+        private static bool IsCallRelayActive()
         {
             string answer = Port.Ask("AT+CCFC=0,2");
-            MatchCollection mc = Regex.Matches(answer, @"\+CCFC: (\d),(\d),(\.+)");
-            bool isActive = false;
+            MatchCollection mc = Regex.Matches(answer, @"\+CCFC: (\d),(\d),(.+),(\d+)");
 
             foreach (Match m in mc)
             {
@@ -272,19 +282,145 @@ namespace MelBoxGsm
                 }
             }
 
-            return isActive;
+            return CallForwardingActive;
         }
 
-        private static bool SetCallRelay(string phone)
+        private static void SetCallRelay(string phone)
         {
             MatchCollection mc = Regex.Matches(phone, @"\+(\d+)");
 
             if (mc.Count > 0)
             _ = Port.Ask("AT+CCFC=0,3,\"" + phone + "\", 145");
 
-            return IsCallRelayActive();
+            _ = IsCallRelayActive();
         }
 
+        private static void SetIncomingCallNotification(bool active = true)
+        {
+            _ = Port.Ask($"AT+CLIP={(active ? 1 : 0)}");
+        }
+
+        private static void SetSimTrayNotification(bool notify = true)
+        {
+            _ = Port.Ask($"AT^SCKS={(notify ? 1 : 0)}");
+        }
+
+        private static void SetNewSmsRecNotification(bool sms = true, bool statusreport = true)
+        {
+            //Setze Parameter für SMS Textmode. Siehe Seite 375f (Kap. 13.16)
+            //Quelle: https://www.codeproject.com/questions/271002/delivery-reports-in-at-commands
+            //Quelle: https://www.smssolutions.net/tutorials/gsm/sendsmsat/
+            //AT+CSMP=<fo> [,  <vp> / <scts> [,  <pid> [,  <dcs> ]]]
+            // <fo> First Octet:
+            // <vp> Validity-Period: 0 - 143 (vp+1 x 5min), 144 - 167 (12 Hours + ((VP-143) x 30 minutes)), [...]
+            _ = Port.Ask("AT+CSMP=49,1,0,0");
+
+            //Sendeempfangsbestätigungen abonieren. Siehe Seite 367ff (Kap. 13.11)
+            //AT+CNMI= [ <mode> ][,  <mt> ][,  <bm> ][,  <ds> ][,  <bfr> ]
+            int mt = sms ? 1 : 0;
+            int ds = statusreport ? 2 : 0;
+
+            _ = Port.Ask($"AT+CNMI=2,{mt},2,{ds},1");
+        }
+
+        /// <summary>
+        /// Ereignisse (ungetriggerte Zeichenfolge) von Modem 
+        /// </summary>
+        /// <param name="recLine">empfang</param>
+        internal static void UnsolicatedEvent(string recLine)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine(recLine);
+            Console.ForegroundColor = ConsoleColor.Gray;
+
+            #region SIM-Schubfach
+            Match m1 = Regex.Match(recLine, @"^SCKS: (\d)");
+
+            if (m1.Success && int.TryParse(m1.Groups[1].Value, out int SimTrayStatus))
+            {
+                if (SimTrayStatus == 1) 
+                    SetupModem(CallForwardingNumber);
+                else
+                {
+                    LastError = new Tuple<DateTime, string>(DateTime.Now, "Keine SIM-Karte detektiert.");
+
+                    NewErrorEvent?.Invoke(null, $"{LastError.Item1.ToShortTimeString()}: {LastError.Item2}");
+                }
+            }
+
+            #endregion
+
+            #region neue SMS oder Statusreport empfangen
+            Match m2 = Regex.Match(recLine, @"\+C(?:MT|DS)I: ");
+
+            if (m2.Success)
+            {
+                _ = SmsRead();
+            }
+
+            #endregion
+
+            #region Sprachanruf empfangen (Ereignis wird beim Klingeln erzeugt)
+            Match m3 = Regex.Match(recLine, @"\+CLIP: (.+),(?:\d+),,,,(?:\d+)");
+
+            if (m3.Success)
+            {
+                string callFrom = m3.Groups[1].Value.Trim('"');
+
+                if (callFrom != lastIncomingCallNumber)
+                {
+                    lastIncomingCallNumber = callFrom;
+                    Log.Info($"Sprachanruf von Anrufer >{callFrom}<", 31016);
+                    NewCallRecieved?.Invoke(null, $"Sprachanruf von >{callFrom}<");
+
+                    Timer callNotifcationTimer = new Timer(20000); //Anrufe von diese Nummer für 20 sec. nicht signalisieren
+                    callNotifcationTimer.Elapsed += CallNotifcationTimer_Elapsed;
+                    callNotifcationTimer.AutoReset = false;
+                    callNotifcationTimer.Start();
+                }
+            }
+            #endregion
+        }
+
+        private static string lastIncomingCallNumber = "";
+
+        private static void CallNotifcationTimer_Elapsed(object sender, ElapsedEventArgs e)
+        {
+            lastIncomingCallNumber = "";
+        }
+
+
+        public static string DecodeUcs2(string ucs2)
+        {
+            //UCS2 ist Fallback-Encode, wenn Standard GSM-Encode nicht ausreicht.
+            ucs2 = ucs2.Trim();
+            System.Collections.Generic.List<byte> bytes = new System.Collections.Generic.List<byte>();
+
+            for (int i = 0; i < ucs2.Length; i += 2)
+            {
+                string str = ucs2.Substring(i, 2);
+                bytes.Add(byte.Parse(str, System.Globalization.NumberStyles.HexNumber));
+#if DEBUG
+                Console.Write(str + " ");
+#endif
+            }
+            //#if DEBUG
+            //            Console.WriteLine();
+
+            //            string result = "Unicode: " + System.Text.Encoding.Unicode.GetString(bytes.ToArray());
+            //            result += Environment.NewLine + "UTF8:      " + System.Text.Encoding.UTF8.GetString(bytes.ToArray());
+            //            result += Environment.NewLine + "Default:   " + System.Text.Encoding.Default.GetString(bytes.ToArray());
+            //            result += Environment.NewLine + "UTF7:      " + System.Text.Encoding.UTF7.GetString(bytes.ToArray());
+            //            result += Environment.NewLine + "ASCII:     " + System.Text.Encoding.ASCII.GetString(bytes.ToArray());
+            //            result += Environment.NewLine + "BigEndian: " + System.Text.Encoding.BigEndianUnicode.GetString(bytes.ToArray());
+            //#endif
+            return System.Text.Encoding.BigEndianUnicode.GetString(bytes.ToArray());
+        }
+
+        private static string DecodeUmlaute(string input)
+        {
+            return input.Replace('[', 'Ä').Replace('\\', 'Ö').Replace('^', 'Ü').Replace('{', 'ä').Replace('|', 'ö').Replace('~', 'ü');
+        }
 
     }
 }
