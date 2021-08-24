@@ -122,7 +122,7 @@ namespace MelBoxGsm
                 {
                     LastError = new Tuple<DateTime, string>(DateTime.Now, m.Groups[1].Value.TrimEnd('\r'));
 
-                    NewErrorEvent?.Invoke(null, $"{LastError.Item1.ToShortTimeString()}: {LastError.Item2}");
+                    NewErrorEvent?.Invoke(null, $"{LastError.Item1:yyyy-MM-dd HH:mm:ss}: {LastError.Item2}");
                 }
                 else
                 {
@@ -268,16 +268,25 @@ namespace MelBoxGsm
             }
         }
 
-        private static bool IsCallRelayActive()
+        private static bool IsCallForewardingActive()
         {
-            string answer = Port.Ask("AT+CCFC=0,2");
-            MatchCollection mc = Regex.Matches(answer, @"\+CCFC: (\d),(\d),(.+),(\d+)");
+            string answer = Port.Ask("AT+CCFC=2,2");
+            //+CCFC: <status> ,  <class> [,  <number> ,  <type> ]
+            MatchCollection mc = Regex.Matches(answer, @"\+CCFC: (\d),(\d),""(.+)"",(?:\d+),(\d+)");
 
             foreach (Match m in mc)
             {
-                if (int.TryParse(m.Groups[2].Value, out int c) && int.TryParse(m.Groups[1].Value, out int a) && (c % 2 == 1)) //Sprachanrufe
+                if (int.TryParse(m.Groups[1].Value, out int _status) && int.TryParse(m.Groups[2].Value, out int _class) && (_class % 2 == 1)) //Sprachanrufe
                 {
-                    CallForwardingActive = a == 1;
+                    bool isActive = _status == 1;
+
+                    if (isActive != CallForwardingActive) // nur bei Statusänderung
+                    {
+                        Log.Info($"Die Anrufweiterleitung an >{CallForwardingNumber}< ist {(CallForwardingActive ? "" : "de")}aktiviert", 1532);
+                        if (isActive) SetIncomingCallNotification();
+                    }
+
+                    CallForwardingActive = isActive;
                     CallForwardingNumber = mc[0].Groups[3].Value.Trim('"');
                 }
             }
@@ -285,14 +294,14 @@ namespace MelBoxGsm
             return CallForwardingActive;
         }
 
-        private static void SetCallRelay(string phone)
+        private static void SetCallForewarding(string phone)
         {
             MatchCollection mc = Regex.Matches(phone, @"\+(\d+)");
 
             if (mc.Count > 0)
-            _ = Port.Ask("AT+CCFC=0,3,\"" + phone + "\", 145");
+                _ = Port.Ask($"AT+CCFC=2,3,\"{phone}\",145,1,{RingTimeToCallForwarding}", 5000);
 
-            _ = IsCallRelayActive();
+            _ = IsCallForewardingActive();
         }
 
         private static void SetIncomingCallNotification(bool active = true)
@@ -339,12 +348,12 @@ namespace MelBoxGsm
             if (m1.Success && int.TryParse(m1.Groups[1].Value, out int SimTrayStatus))
             {
                 if (SimTrayStatus == 1) 
-                    SetupModem(CallForwardingNumber);
+                    SetupModem();
                 else
                 {
                     LastError = new Tuple<DateTime, string>(DateTime.Now, "Keine SIM-Karte detektiert.");
 
-                    NewErrorEvent?.Invoke(null, $"{LastError.Item1.ToShortTimeString()}: {LastError.Item2}");
+                    NewErrorEvent?.Invoke(null, $"{LastError.Item1:yyyy-MM-dd HH:mm:ss}: {LastError.Item2}");
                 }
             }
 
@@ -371,7 +380,7 @@ namespace MelBoxGsm
                 {
                     lastIncomingCallNumber = callFrom;
                     Log.Info($"Sprachanruf von Anrufer >{callFrom}<", 31016);
-                    NewCallRecieved?.Invoke(null, $"Sprachanruf von >{callFrom}<");
+                    NewCallRecieved?.Invoke(null, callFrom);
 
                     Timer callNotifcationTimer = new Timer(20000); //Anrufe von diese Nummer für 20 sec. nicht signalisieren
                     callNotifcationTimer.Elapsed += CallNotifcationTimer_Elapsed;
@@ -388,7 +397,6 @@ namespace MelBoxGsm
         {
             lastIncomingCallNumber = "";
         }
-
 
         public static string DecodeUcs2(string ucs2)
         {

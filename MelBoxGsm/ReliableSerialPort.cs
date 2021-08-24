@@ -52,8 +52,7 @@ namespace MelBoxGsm
                 try
                 {
                     base.Open();
-                    // ThreadPool.QueueUserWorkItem(ContinuousRead);
-                    ContinuousRead();
+                    ContinuousRead2();
                 }
 #pragma warning disable CA1031 // Do not catch general exception types
                 catch
@@ -63,75 +62,81 @@ namespace MelBoxGsm
                 }
 #pragma warning restore CA1031 // Do not catch general exception types
             } while (!base.IsOpen && --Try > 0);
+
+            if(!base.IsOpen)
+            {
+                string errorText = $"Der COM-Port {base.PortName} ist nicht bereit. Das Programm wird beendet.";
+                Console.WriteLine(errorText);
+                Log.Error(errorText, 102);
+            }
         }
 
         #endregion
 
         #region Read
-        private void ContinuousRead()
-        {
+        //        private void ContinuousRead()
+        //        {
 
-            try
-            {
-               // ThreadPool.QueueUserWorkItem(delegate (object unused) {
-                byte[] buffer = new byte[4096];
-                void kickoffRead() => BaseStream.BeginRead(buffer, 0, buffer.Length, delegate (IAsyncResult ar)
-                {
-                    try
-                    {
-                            //if (!IsOpen) return; //Wenn beim Lesen die Verbindung abbricht.
+        //            try
+        //            {
+        //               // ThreadPool.QueueUserWorkItem(delegate (object unused) {
+        //                byte[] buffer = new byte[4096];
+        //                void kickoffRead() => BaseStream.BeginRead(buffer, 0, buffer.Length, delegate (IAsyncResult ar)
+        //                {
+        //                    try
+        //                    {
 
-                            int count = BaseStream.EndRead(ar);
-                        byte[] dst = new byte[count];
-                        Buffer.BlockCopy(buffer, 0, dst, 0, count);
-                        OnDataReceived(dst);
-                    }
-#pragma warning disable CA1031 // Do not catch general exception types
-                        catch (System.IO.IOException)
-                    {
-                            // Thread wurde beendet - nichts unternehmen
-                        }
-                    catch (OperationCanceledException)
-                    {
-                            // nichts unternehmen
-                        }
-#pragma warning restore CA1031 // Do not catch general exception types
-#pragma warning disable CA1031 // Do not catch general exception types
-                        catch (Exception exception)
-                    {
-                        Console.WriteLine("ContinuousRead(): Lesefehler Bitstream von COM-Port:\r\n" +
-                            ">" + System.Text.Encoding.UTF8.GetString(buffer) + "<" + Environment.NewLine +
-                            exception.GetType() + Environment.NewLine +
-                            exception.Message + Environment.NewLine +
-                            exception.InnerException + Environment.NewLine +
-                            exception.Source + Environment.NewLine +
-                            exception.StackTrace);
+        //                        int count = BaseStream.EndRead(ar);
+        //                        byte[] dst = new byte[count];
+        //                        Buffer.BlockCopy(buffer, 0, dst, 0, count);
+        //                        OnDataReceived(dst);
+        //                    }
+        //#pragma warning disable CA1031 // Do not catch general exception types
+        //                        catch (System.IO.IOException)
+        //                    {
+        //                            // Thread wurde beendet - nichts unternehmen
+        //                        }
+        //                    catch (OperationCanceledException)
+        //                    {
+        //                            // nichts unternehmen
+        //                        }
+        //#pragma warning restore CA1031 // Do not catch general exception types
+        //#pragma warning disable CA1031 // Do not catch general exception types
+        //                        catch (Exception exception)
+        //                    {
+        //                        Console.WriteLine("ContinuousRead(): Lesefehler Bitstream von COM-Port:\r\n" +
+        //                            ">" + System.Text.Encoding.UTF8.GetString(buffer) + "<" + Environment.NewLine +
+        //                            exception.GetType() + Environment.NewLine +
+        //                            exception.Message + Environment.NewLine +
+        //                            exception.InnerException + Environment.NewLine +
+        //                            exception.Source + Environment.NewLine +
+        //                            exception.StackTrace);
 
-                        Log.Error($"Lesefehler COM-Port in Bitstream bei >{System.Text.Encoding.UTF8.GetString(buffer)}<", 41918);
-                    }
-#pragma warning restore CA1031 // Do not catch general exception types
+        //                        Log.Error($"Lesefehler COM-Port in Bitstream bei >{System.Text.Encoding.UTF8.GetString(buffer)}<", 41918);
+        //                    }
+        //#pragma warning restore CA1031 // Do not catch general exception types
 
-                        kickoffRead();
-                }, null);
-                kickoffRead();
-               // });
-            }
-#pragma warning disable CA1031 // Do not catch general exception types
-            catch (Exception exception)
-            {
-                Console.WriteLine("ContinuousRead(): Lesefehler bei Beginn. COM-Port:\r\n" +
-                    exception.GetType() + Environment.NewLine +
-                    exception.Message + Environment.NewLine +
-                    exception.InnerException + Environment.NewLine +
-                    exception.Source + Environment.NewLine +
-                    exception.StackTrace);
+        //                        kickoffRead();
+        //                }, null);
+        //                kickoffRead();
+        //               // });
+        //            }
+        //#pragma warning disable CA1031 // Do not catch general exception types
+        //            catch (Exception exception)
+        //            {
+        //                Console.WriteLine("ContinuousRead(): Lesefehler bei Beginn. COM-Port:\r\n" +
+        //                    exception.GetType() + Environment.NewLine +
+        //                    exception.Message + Environment.NewLine +
+        //                    exception.InnerException + Environment.NewLine +
+        //                    exception.Source + Environment.NewLine +
+        //                    exception.StackTrace);
 
-                Log.Error($"Lesefehler an COM-Port: {exception.Message}", 41919);
-            }
-#pragma warning restore CA1031 // Do not catch general exception types
-        }
+        //                Log.Error($"Lesefehler an COM-Port: {exception.Message}", 41919);
+        //            }
+        //#pragma warning restore CA1031 // Do not catch general exception types
+        //        }
 
-        /* private void ContinuousRead2()
+        private void ContinuousRead2()
         {
             ThreadPool.QueueUserWorkItem(async delegate (object unused)
             {
@@ -141,19 +146,29 @@ namespace MelBoxGsm
                 {
                     try
                     {
+                        if (!base.IsOpen) return;
                         int count = await BaseStream.ReadAsync(buffer, 0, buffer.Length);
                         byte[] dst = new byte[count];
                         Buffer.BlockCopy(buffer, 0, dst, 0, count);
-
                         OnDataReceived(dst);
                     }
-                    catch
-                    { 
-                        //nichts unternehmen
+#pragma warning disable CA1031 // Do not catch general exception types
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("ContinuousRead(): Lesefehler an COM-Port:\r\n" +
+                        ex.GetType() + Environment.NewLine +
+                        ex.Message + Environment.NewLine +
+                        ex.InnerException + Environment.NewLine +
+                        ex.Source + Environment.NewLine +
+                        ex.StackTrace);
+
+                        Log.Error($"Lesefehler an COM-Port: {ex.Message}", 41917);
                     }
+#pragma warning restore CA1031 // Do not catch general exception types
                 }
             });
         }
+
         //*/
 
         public const string Terminator = "\r\nOK\r\n";
@@ -191,9 +206,7 @@ namespace MelBoxGsm
         public string Ask(string request, int timeout = 3000)
         {
             if (!base.IsOpen) Open();
-             
-            base.DiscardOutBuffer();
-            base.DiscardInBuffer();
+            if (!base.IsOpen) return recLine;
 
             base.WriteLine(request);
 

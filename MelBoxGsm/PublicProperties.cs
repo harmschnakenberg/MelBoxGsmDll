@@ -52,9 +52,11 @@ namespace MelBoxGsm
 
         public static bool CallForwardingActive { get; private set; }
 
+        public static int RingTimeToCallForwarding { get; set; } = 5;
+
         /// <summary>
         /// Der Zuletzt vom Modem gemeldete Fehler mit Zeit der Meldung
         /// </summary>
-        public static Tuple<DateTime, string> LastError { get; private set; } = new Tuple<DateTime, string>(DateTime.Now, def);
+        public static Tuple<DateTime, string> LastError { get; private set; } = new Tuple<DateTime, string>(DateTime.Now, "-kein Fehler-");
     }
 }

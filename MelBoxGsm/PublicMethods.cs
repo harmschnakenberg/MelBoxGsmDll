@@ -17,7 +17,7 @@ namespace MelBoxGsm
         /// <summary>
         /// Gibt eine Reihe von Anweisungen an das GSM-Modem, bevor andere Operationen ausgeführt werden.
         /// </summary>
-        public static void SetupModem(string callForwardingNumber)
+        public static void SetupModem()
         {
             Log.Info($"Modem wird an {SerialPortName} initialisiert.", 1245);
 
@@ -32,11 +32,9 @@ namespace MelBoxGsm
             GetProviderName();
             GetSmsServiceCenterAddress();
             SetGsmMemory();
-            CheckNetworkConnection(null, null);
-            SetCallRelay(callForwardingNumber);
-
-            SetIncomingCallNotification();
+            CheckNetworkConnection(null, null);          
             SetNewSmsRecNotification();
+            SetCallForewarding(CallForwardingNumber);
 
             #region Regelmäßige Anfragen an das Modem
             askingTimer.Elapsed += new ElapsedEventHandler(CheckNetworkConnection);
@@ -178,8 +176,8 @@ namespace MelBoxGsm
             if ( networkStatus )
                 NetworkStatusEvent?.Invoke(null, EventArgs.Empty);
             
-            if (!CallForwardingActive && !IsCallRelayActive())
-                SetCallRelay(CallForwardingNumber);
+            if (!CallForwardingActive && !IsCallForewardingActive())
+                SetCallForewarding(CallForwardingNumber);
 
             List<SmsIn> smsIn = SmsRead("ALL");
 

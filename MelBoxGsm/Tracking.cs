@@ -63,6 +63,7 @@ namespace MelBoxGsm
                     newReports.Add(report);
 
                 }
+#pragma warning disable CA1031 // Do not catch general exception types
                 catch (Exception)
                 {
 #if DEBUG
@@ -71,6 +72,7 @@ namespace MelBoxGsm
                     Log.Error("Fehler beim Abrufen von Statusreports aus GSM-Modem.", 42015);
 #endif
                 }
+#pragma warning restore CA1031 // Do not catch general exception types
             }
 
             TrackSentSms(newReports);
