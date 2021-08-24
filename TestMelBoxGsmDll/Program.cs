@@ -10,7 +10,7 @@ namespace TestMelBoxGsmDll
         {
             Gsm.AdminPhone = "+49...";
 
-            Gsm.SetupModem("+49...");
+            Gsm.SetupModem();
 
             List<SmsIn> smsIn = Gsm.SmsRead();
 
