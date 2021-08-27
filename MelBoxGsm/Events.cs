@@ -31,7 +31,7 @@ namespace MelBoxGsm
         /// <summary>
         /// Wird ausgelöst, wenn sich der Status für Signalstärke oder Anmeldestatus beim Mobilfunknetz ändert.
         /// </summary>
-        public static event EventHandler NetworkStatusEvent;
+        public static event EventHandler<int> NetworkStatusEvent;
 
         /// <summary>
         /// Wird ausgelöst, wenn für eine gesendete SMS keine Empfangsbestätigung bis zum Timeout empfangen wird.

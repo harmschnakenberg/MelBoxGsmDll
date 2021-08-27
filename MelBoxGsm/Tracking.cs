@@ -12,6 +12,10 @@ namespace MelBoxGsm
         /// </summary>
         private static readonly List<SmsOut> trackingList = new List<SmsOut>();
 
+        /// <summary>
+        /// Liest Statusreports (Empfangsbestätigungen) aus der Modemantwort
+        /// </summary>
+        /// <param name="answer">Modemantwort</param>
         private static void ParseStatusReports(string answer)
         {
             #region StatusReport
@@ -59,7 +63,11 @@ namespace MelBoxGsm
                         DeliveryStatus = delviveryStatus
                     };
 
-                    Console.WriteLine($"Empfangsbestätigung erhalten für ID[{reference}]: " + (delviveryStatus > 63 ? "Senden fehlgeschlagen" : delviveryStatus > 31 ? "senden im Gange" : "erfolgreich versendet"));
+                    //Delivery-Status <st> - Quelle: https://en.wikipedia.org/wiki/GSM_03.40#Discharge_Time
+                    //0-31:     delivered or, more generally, other transaction completed.
+                    //32-63:    still trying to deliver the message.
+                    //64-127:   not making any more delivery attempts.
+                    Console.WriteLine($"Empfangsbestätigung erhalten für ID[{reference}]: StatusCode [{delviveryStatus }]: " + (delviveryStatus > 63 ? "Senden fehlgeschlagen" : delviveryStatus > 31 ? "senden im Gange" : "erfolgreich versendet"));
                     newReports.Add(report);
 
                 }
@@ -80,68 +88,30 @@ namespace MelBoxGsm
             #endregion
         }
 
-
+        /// <summary>
+        /// Werte erhaltene Statusreports (Empfangsbestätigungen) aus. Nimmt erfolgreich versendete Nachrichten aus der TrackingList
+        /// </summary>
+        /// <param name="newReports"></param>
         private static void TrackSentSms(List<Report> newReports)
         {
             List<SmsOut> deleteFromTracking = new List<SmsOut>();
 
             foreach (Report report in newReports)
             {
+                SmsReportEvent?.Invoke(null, report); // Tabelle 'Sent' aktualisieren 
+
                 if (trackingList.Count == 0)
-                {
-                    SmsReportEvent?.Invoke(null, report); //Trotzdem versuchen in Datenbank zu aktualisieren.
                     Log.Warning($"Es wurde eine Empfangsbestätigung für SMS-Referenz [{report.Reference}] empfangen, obwohl keine erwartet wurde. Dies kann nach einem Neustart passieren.", 913);
-                }
                 else
-                {
+                {                 
                     foreach (SmsOut tracking in trackingList)
                     {
-
-                        SmsReportEvent?.Invoke(null, report);
-
-                        if (tracking.Reference == report.Reference)
-                        {
-                            deleteFromTracking.Add(tracking);
-                        }
-
-                        if (tracking.SendTimeUtc.CompareTo(System.DateTime.UtcNow.AddMinutes(-TrackingTimeoutMinutes)) < 0) //TESTEN!
-                        {
-                            string timeoutText = $"Keine Empfangsbestätigung seit über {TrackingTimeoutMinutes} Minuten. Sendeversuch Nr. {tracking.SendTryCounter} für SMS mit ID[{tracking.Reference}] an >{tracking.Phone}< >{tracking.Message}<.";
-
-                            Console.WriteLine(timeoutText);
-
-                            FailedSmsSendEvent?.Invoke(null, tracking);
-
-                            if (MaxSendTrysPerSms < tracking.SendTryCounter)
-                            {
-                                //Erneut versuchen zu Senden
-                                Log.Warning(timeoutText, 51708);
-
-                                tracking.SendTryCounter++;
-                                sendList.Enqueue(tracking);
-                            }
-                            else if (MaxSendTrysPerSms == tracking.SendTryCounter)
-                            {
-                                //Senden entgültig fehlgeschlagen; Admin informieren! 
-                                Log.Error($"SMS-Nachricht nach {tracking.SendTryCounter} Versuchen an >{tracking.Phone}< unzustellbar. Wird deshalb an Admin >{AdminPhone}< gesendet: >{tracking.Message}<", 51704);
-
-                                tracking.Phone = AdminPhone;
-                                tracking.SendTryCounter++;
-                                sendList.Enqueue(tracking);
-                            }
-                            else
-                            {
-                                //Auch Senden an Admin ist fehlgeschlagen
-                                Log.Error($"SMS-Nachricht konnte nach {tracking.SendTryCounter} Versuchen weder an Empfänger noch an Admin gesendet werden. Die Nachricht wird verworfen!", 51705);
-                            }
-
-                            deleteFromTracking.Add(tracking);
-                        }
-
+                        if (tracking.Reference == report.Reference)                        
+                            deleteFromTracking.Add(tracking);                                                   
                     }
                 }
 #if DEBUG
-                Console.WriteLine($"StatusReports für Refernez [{report.Reference}] an Index [{report.Index}] wird aus dem Modem gelöscht.");
+                Console.WriteLine($"StatusReports für Refernez [{report.Reference}] an Index [{report.Index}] wird aus dem Modem gelöscht. Sendestatus = " + report.DeliveryStatus);
 #endif
                 SmsDelete(report.Index);
 
@@ -154,6 +124,42 @@ namespace MelBoxGsm
         }
 
 
+        /// <summary>
+        /// Wird aufgerugfen, wenn eine ausgehende SMS 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private static void CurrentSendSms_SmsSentTimeout(object sender, SmsOut e)
+        {
+            if (!trackingList.Contains(e)) return;
+
+            trackingList.Remove(e);
+
+            string timeoutText = $"Keine Empfangsbestätigung seit {e.SendTimeUtc.ToLocalTime()} ({ (DateTime.UtcNow - e.SendTimeUtc).TotalMinutes } min.), Sendeversuch Nr. {e.SendTryCounter} für SMS mit ID[{e.Reference}] an >{e.Phone}< >{e.Message}<.";
+            Console.WriteLine(timeoutText);
+
+            if (e.SendTryCounter < MaxSendTrysPerSms)
+            {
+                //Erneut versuchen zu Senden
+                Log.Warning(timeoutText, 51708);
+                sendList.Enqueue(e);
+            }
+            else if (e.SendTryCounter == MaxSendTrysPerSms)
+            {
+                //Senden entgültig fehlgeschlagen; Admin informieren! 
+                Log.Error($"SMS-Nachricht >{e.Message}< nach {e.SendTryCounter} Versuchen an >{e.Phone}< unzustellbar. Wird deshalb an Admin >{AdminPhone}< gesendet: >{e.Message}<", 51704);
+
+                e.Phone = AdminPhone;
+                sendList.Enqueue(e);
+            }
+            else
+            {
+                //Auch Senden an Admin ist fehlgeschlagen
+                Log.Error($"SMS-Nachricht >{e.Message}< konnte nach {e.SendTryCounter} Versuchen weder an Empfänger >{e.Phone}< noch an Admin gesendet werden. Die Nachricht wird verworfen!", 51705);
+            }
+
+            FailedSmsSendEvent?.Invoke(null, e);
+        }
     }
 
 }

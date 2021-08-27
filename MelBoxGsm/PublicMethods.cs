@@ -11,7 +11,7 @@ namespace MelBoxGsm
         /// <summary>
         /// Timer für zyklische Modemabfrage
         /// </summary>
-        static readonly Timer askingTimer = new Timer(19999);// wenn unsolicated SMS-Delivery +CMTI: / StatusReport +CDSI: funktioniert ca 1 Minute, sonst 10-30 sec?
+        static readonly Timer askingTimer = new Timer(19000);// wenn unsolicated SMS-Delivery +CMTI: / StatusReport +CDSI: funktioniert ca 1 Minute, sonst 10-30 sec?
 
 
         /// <summary>
@@ -19,7 +19,7 @@ namespace MelBoxGsm
         /// </summary>
         public static void SetupModem()
         {
-            Log.Info($"Modem wird an {SerialPortName} initialisiert.", 1245);
+            Log.Info($"Modem wird an {SerialPortName} initialisiert.", 102);
 
             //Modem
             GetModemType();
@@ -27,7 +27,7 @@ namespace MelBoxGsm
             SetSimTrayNotification();
 
             //SIM-Karte
-            GetSimPinStatus("0000");
+            GetSimPinStatus(SimPin);
             GetOwnNumber();
             GetProviderName();
             GetSmsServiceCenterAddress();
@@ -161,20 +161,26 @@ namespace MelBoxGsm
         /// <param name="index">Speicherplatz einer SMS in Modem oder SIM-Karte</param>
         public static void SmsDelete(int index)
         {
+            if (index > 0) // Simulierte SMS haben Index 0
             _ = Port.Ask("AT+CMGD=" + index);
         }
 
-
+        /// <summary>
+        /// Regelmäßige Abfrage an Modem nach Signalqualität, Mobilfunkanmeldestatus, Rufumleitung und SMS-Nachrichten im Modemspeicher
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private static void CheckNetworkConnection(object sender, ElapsedEventArgs e)
         {
+#if DEBUG
             if (e != null) Console.WriteLine(e.SignalTime ); //Als Lebenszeichen an Console
-
+#endif
             bool networkStatus = false;
             networkStatus &= HasNetworkRegistrationChanged();
             networkStatus &= HasSignalQualityChanged();
 
             if ( networkStatus )
-                NetworkStatusEvent?.Invoke(null, EventArgs.Empty);
+                NetworkStatusEvent?.Invoke(null, (NetworkRegistration != "registriert" ? 0 : SignalQuality) );
             
             if (!CallForwardingActive && !IsCallForewardingActive())
                 SetCallForewarding(CallForwardingNumber);
@@ -187,6 +193,9 @@ namespace MelBoxGsm
             }
         }
 
-       
+        public static void ModemShutdown()
+        {
+            Port.Close();
+        }
     }
 }

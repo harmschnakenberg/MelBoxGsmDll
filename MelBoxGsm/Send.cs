@@ -15,7 +15,6 @@ namespace MelBoxGsm
 
         private static readonly ReliableSerialPort Port = new ReliableSerialPort(SerialPortName);
 
-
         /// <summary>
         /// Zum Senden anstehende SMS
         /// </summary>
@@ -41,20 +40,19 @@ namespace MelBoxGsm
             Match m = Regex.Match(answer, @"\+CMGS: (\d+)");
 
             currentSendSms.SendTimeUtc = DateTime.UtcNow;
-            currentSendSms.SendTryCounter++;
-
+            
             if (m.Success && int.TryParse(m.Groups[1].Value, out int reference))
             {
                 currentSendSms.Reference = reference;
-
-                trackingList.Add(currentSendSms);
-
+                currentSendSms.SmsSentTimeout += CurrentSendSms_SmsSentTimeout;
+                currentSendSms.StartTimeout(Gsm.TrackingTimeoutMinutes);
+                trackingList.Add(currentSendSms);                
 #if DEBUG
                 Console.WriteLine($"SMS-Referenz [{currentSendSms.Reference}] vergeben für gesendet >{currentSendSms.Phone}< >{currentSendSms.Message}<");
 #endif
             }
             else
-            {
+            {                
                 Log.Warning($"Der gesendeten SMS an >{currentSendSms.Phone}< >{currentSendSms.Message}< konnte keine Referenz zugeordnet werden. Es kann keine Empfangsbestätigung empfangen werden.", 815);
             }
 

@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Timers;
 
@@ -31,6 +30,10 @@ namespace MelBoxGsm
             return false;
         }
 
+        /// <summary>
+        /// Fragt ab, ob das Modem im Mobilfunnetz registriert ist.
+        /// </summary>
+        /// <returns>true = online</returns>
         private static bool HasNetworkRegistrationChanged()
         {
             bool result = false;
@@ -41,7 +44,7 @@ namespace MelBoxGsm
 
             if (int.TryParse(mc[0].Groups[1].Value, out int mode))
             {
-                if (IsNetworkRegistrationNotificationActive != (mode > 0))
+                if (IsNetworkRegistrationNotificationActive != (mode > 0)) // nur Änderungen verarbeiten
                 {
                     IsNetworkRegistrationNotificationActive = (mode > 0);
 
@@ -263,11 +266,16 @@ namespace MelBoxGsm
 
             if (SimPinStatus == "SIM PIN") //PIN-Eingabe erforderlich
             {
+                Console.WriteLine("PIN-Eingabe erforderlich.");
                 Port.Ask("AT+CPIN=" + simPin);
                 GetSimPinStatus(simPin);
             }
         }
 
+        /// <summary>
+        /// Fragt ab, ob die Rufumleitung bei Nicht-Erreichbarkeit eingeschaltet ist.
+        /// </summary>
+        /// <returns>true = Sprachanrufe werden umgeleitet.</returns>
         private static bool IsCallForewardingActive()
         {
             string answer = Port.Ask("AT+CCFC=2,2");
@@ -282,7 +290,7 @@ namespace MelBoxGsm
 
                     if (isActive != CallForwardingActive) // nur bei Statusänderung
                     {
-                        Log.Info($"Die Anrufweiterleitung an >{CallForwardingNumber}< ist {(CallForwardingActive ? "" : "de")}aktiviert", 1532);
+                        Log.Info($"Die Anrufweiterleitung an >{CallForwardingNumber}< ist {(isActive ? "" : "de")}aktiviert", 104);
                         if (isActive) SetIncomingCallNotification();
                     }
 
@@ -294,26 +302,43 @@ namespace MelBoxGsm
             return CallForwardingActive;
         }
 
+        /// <summary>
+        /// Aktiviert die Rufumleitung auf die Angegeben Telefonnummer
+        /// </summary>
+        /// <param name="phone">Nummer zu der Sprachanrufe umgeleitet werdne sollen.</param>
         private static void SetCallForewarding(string phone)
         {
             MatchCollection mc = Regex.Matches(phone, @"\+(\d+)");
 
             if (mc.Count > 0)
-                _ = Port.Ask($"AT+CCFC=2,3,\"{phone}\",145,1,{RingTimeToCallForwarding}", 5000);
+                _ = Port.Ask($"AT+CCFC=2,3,\"{phone}\",145,1,{RingSecondsToCallForwarding}", 5000);
 
             _ = IsCallForewardingActive();
         }
 
+        /// <summary>
+        /// Legt fest, ob bei eingehendem Anruf ein Ereignis ausgelöst werden soll. Voraussetzung für Protokollierung der Rufumleitung.
+        /// </summary>
+        /// <param name="active">true = Zeigt Nummer des Anrufenden an bei jedem '+RING: '-Ereignis von Modem.</param>
         private static void SetIncomingCallNotification(bool active = true)
         {
             _ = Port.Ask($"AT+CLIP={(active ? 1 : 0)}");
         }
 
+        /// <summary>
+        /// Legt fest, ob ein Ereignis ausgelöst werden soll wenn die SIM-Karte (nicht mehr) gefunden wird.
+        /// </summary>
+        /// <param name="notify">true = Ereignis bei Statusänderung SIM-Schubfach</param>
         private static void SetSimTrayNotification(bool notify = true)
         {
             _ = Port.Ask($"AT^SCKS={(notify ? 1 : 0)}");
         }
 
+        /// <summary>
+        /// Legt fest, ob ein Ereignis ausgelöst werden soll, wenn das Modem eine neue Nachricht empfangen hat.
+        /// </summary>
+        /// <param name="sms">true = Ereignis bei eingehener SMS</param>
+        /// <param name="statusreport">true = Ereignis bei eingehendem Stausreport</param>
         private static void SetNewSmsRecNotification(bool sms = true, bool statusreport = true)
         {
             //Setze Parameter für SMS Textmode. Siehe Seite 375f (Kap. 13.16)
@@ -322,7 +347,7 @@ namespace MelBoxGsm
             //AT+CSMP=<fo> [,  <vp> / <scts> [,  <pid> [,  <dcs> ]]]
             // <fo> First Octet:
             // <vp> Validity-Period: 0 - 143 (vp+1 x 5min), 144 - 167 (12 Hours + ((VP-143) x 30 minutes)), [...]
-            _ = Port.Ask("AT+CSMP=49,1,0,0");
+            _ = Port.Ask("AT+CSMP=49,2,0,0");
 
             //Sendeempfangsbestätigungen abonieren. Siehe Seite 367ff (Kap. 13.11)
             //AT+CNMI= [ <mode> ][,  <mt> ][,  <bm> ][,  <ds> ][,  <bfr> ]
@@ -337,11 +362,7 @@ namespace MelBoxGsm
         /// </summary>
         /// <param name="recLine">empfang</param>
         internal static void UnsolicatedEvent(string recLine)
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine(recLine);
-            Console.ForegroundColor = ConsoleColor.Gray;
-
+        {            
             #region SIM-Schubfach
             Match m1 = Regex.Match(recLine, @"^SCKS: (\d)");
 
@@ -364,7 +385,12 @@ namespace MelBoxGsm
 
             if (m2.Success)
             {
-                _ = SmsRead();
+                System.Collections.Generic.List<SmsIn> smsIn = SmsRead();
+
+                foreach (SmsIn sms in smsIn)
+                {
+                    Console.WriteLine($"Empfangene Sms: {sms.Index} - {sms.Phone}:\t{sms.Message}");
+                }
             }
 
             #endregion
@@ -391,13 +417,27 @@ namespace MelBoxGsm
             #endregion
         }
 
+        /// <summary>
+        /// Hilfsvariable, damit eingehende Sprachanrufe nur einmal und nicht bei jedem Klingeln gemeldet werden. 
+        /// </summary>
         private static string lastIncomingCallNumber = "";
 
+        /// <summary>
+        /// Hilfstimer, damit eingehende Sprachanrufe nur einmal und nicht bei jedem Klingeln gemeldet werden. 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private static void CallNotifcationTimer_Elapsed(object sender, ElapsedEventArgs e)
         {
             lastIncomingCallNumber = "";
         }
 
+        /// <summary>
+        /// Sind Sonderzeochen in einer SMS empfangen, wird das Encoding vom mOdem/Provider nach UCS2 (= HEX-Code)geändert.
+        /// Hiermit wird das HEX-Format in Unicode umgewandelt.
+        /// </summary>
+        /// <param name="ucs2">SMS-Inhalt im UCS2-Format</param>
+        /// <returns></returns>
         public static string DecodeUcs2(string ucs2)
         {
             //UCS2 ist Fallback-Encode, wenn Standard GSM-Encode nicht ausreicht.
@@ -425,6 +465,12 @@ namespace MelBoxGsm
             return System.Text.Encoding.BigEndianUnicode.GetString(bytes.ToArray());
         }
 
+        /// <summary>
+        /// Bei GSM-Encoding werden Umlaute als andere Zeichen interpretiert. 
+        /// NOCH TESTEN: Werden die ersetzten Sonderzeichne in unseren SMSen verwendet?
+        /// </summary>
+        /// <param name="input">SMS-Inhalt im GSM-Encoding mit 'verbogenen' Umlauten</param>
+        /// <returns>Inhalt mit Umlauten</returns>
         private static string DecodeUmlaute(string input)
         {
             return input.Replace('[', 'Ä').Replace('\\', 'Ö').Replace('^', 'Ü').Replace('{', 'ä').Replace('|', 'ö').Replace('~', 'ü');

@@ -4,7 +4,11 @@ namespace MelBoxGsm
 {
     static class Log
     {
-
+        /// <summary>
+        /// Information in Windows-Ereignisprotokoll schreiben
+        /// </summary>
+        /// <param name="message">Text</param>
+        /// <param name="id">eindeutige Nummer</param>
         internal static void Info(string message, int id)
         {
             using (EventLog eventLog = new EventLog("Application"))
@@ -14,6 +18,11 @@ namespace MelBoxGsm
             }
         }
 
+        /// <summary>
+        /// Warnung in Windows-Ereignisprotokoll schreiben
+        /// </summary>
+        /// <param name="message">Text</param>
+        /// <param name="id">eindeutige Nummer</param>
         internal static void Warning(string message, int id)
         {
             using (EventLog eventLog = new EventLog("Application"))
@@ -23,6 +32,11 @@ namespace MelBoxGsm
             }
         }
 
+        /// <summary>
+        /// Fehlermeldung in Windows-Ereignisprotokoll schreiben
+        /// </summary>
+        /// <param name="message">Text</param>
+        /// <param name="id">eindeutige Nummer</param>
         internal static void Error(string message, int id)
         {
             using (EventLog eventLog = new EventLog("Application"))

@@ -50,9 +50,11 @@ namespace MelBoxGsm
 
         public static string SimPinStatus { get; private set; } = def;
 
-        public static bool CallForwardingActive { get; private set; }
+        public static string SimPin { get; set; } = "0000";
 
-        public static int RingTimeToCallForwarding { get; set; } = 5;
+        public static bool CallForwardingActive { get; private set; } = false;
+
+        public static int RingSecondsToCallForwarding { get; set; } = 5;
 
         /// <summary>
         /// Der Zuletzt vom Modem gemeldete Fehler mit Zeit der Meldung

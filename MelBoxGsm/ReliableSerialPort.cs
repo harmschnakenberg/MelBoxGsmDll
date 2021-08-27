@@ -41,7 +41,15 @@ namespace MelBoxGsm
 
         }
 
-        public static byte Debug { get; set; } = 3;
+        public static GsmDebug Debug { get; set; } = GsmDebug.UnsolicatedResult;
+
+        [Flags]
+        public enum GsmDebug : byte
+        {
+            AnswerGsm = 1,
+            RequestGsm = 2,
+            UnsolicatedResult = 4
+        }
 
         new public void Open()
         {
@@ -52,7 +60,7 @@ namespace MelBoxGsm
                 try
                 {
                     base.Open();
-                    ContinuousRead2();
+                    ContinuousRead();
                 }
 #pragma warning disable CA1031 // Do not catch general exception types
                 catch
@@ -63,80 +71,21 @@ namespace MelBoxGsm
 #pragma warning restore CA1031 // Do not catch general exception types
             } while (!base.IsOpen && --Try > 0);
 
-            if(!base.IsOpen)
+            if (!base.IsOpen)
             {
                 string errorText = $"Der COM-Port {base.PortName} ist nicht bereit. Das Programm wird beendet.";
                 Console.WriteLine(errorText);
-                Log.Error(errorText, 102);
+                base.Close();
+                Log.Error(errorText, 102);                
+                Environment.Exit(102);
             }
         }
 
         #endregion
 
         #region Read
-        //        private void ContinuousRead()
-        //        {
 
-        //            try
-        //            {
-        //               // ThreadPool.QueueUserWorkItem(delegate (object unused) {
-        //                byte[] buffer = new byte[4096];
-        //                void kickoffRead() => BaseStream.BeginRead(buffer, 0, buffer.Length, delegate (IAsyncResult ar)
-        //                {
-        //                    try
-        //                    {
-
-        //                        int count = BaseStream.EndRead(ar);
-        //                        byte[] dst = new byte[count];
-        //                        Buffer.BlockCopy(buffer, 0, dst, 0, count);
-        //                        OnDataReceived(dst);
-        //                    }
-        //#pragma warning disable CA1031 // Do not catch general exception types
-        //                        catch (System.IO.IOException)
-        //                    {
-        //                            // Thread wurde beendet - nichts unternehmen
-        //                        }
-        //                    catch (OperationCanceledException)
-        //                    {
-        //                            // nichts unternehmen
-        //                        }
-        //#pragma warning restore CA1031 // Do not catch general exception types
-        //#pragma warning disable CA1031 // Do not catch general exception types
-        //                        catch (Exception exception)
-        //                    {
-        //                        Console.WriteLine("ContinuousRead(): Lesefehler Bitstream von COM-Port:\r\n" +
-        //                            ">" + System.Text.Encoding.UTF8.GetString(buffer) + "<" + Environment.NewLine +
-        //                            exception.GetType() + Environment.NewLine +
-        //                            exception.Message + Environment.NewLine +
-        //                            exception.InnerException + Environment.NewLine +
-        //                            exception.Source + Environment.NewLine +
-        //                            exception.StackTrace);
-
-        //                        Log.Error($"Lesefehler COM-Port in Bitstream bei >{System.Text.Encoding.UTF8.GetString(buffer)}<", 41918);
-        //                    }
-        //#pragma warning restore CA1031 // Do not catch general exception types
-
-        //                        kickoffRead();
-        //                }, null);
-        //                kickoffRead();
-        //               // });
-        //            }
-        //#pragma warning disable CA1031 // Do not catch general exception types
-        //            catch (Exception exception)
-        //            {
-        //                Console.WriteLine("ContinuousRead(): Lesefehler bei Beginn. COM-Port:\r\n" +
-        //                    exception.GetType() + Environment.NewLine +
-        //                    exception.Message + Environment.NewLine +
-        //                    exception.InnerException + Environment.NewLine +
-        //                    exception.Source + Environment.NewLine +
-        //                    exception.StackTrace);
-
-        //                Log.Error($"Lesefehler an COM-Port: {exception.Message}", 41919);
-        //            }
-        //#pragma warning restore CA1031 // Do not catch general exception types
-        //        }
-
-        private void ContinuousRead2()
+        private void ContinuousRead()
         {
             ThreadPool.QueueUserWorkItem(async delegate (object unused)
             {
@@ -169,8 +118,6 @@ namespace MelBoxGsm
             });
         }
 
-        //*/
-
         public const string Terminator = "\r\nOK\r\n";
         static string recLine = string.Empty;
 
@@ -194,7 +141,7 @@ namespace MelBoxGsm
             //if (_wait.Set()) Console.WriteLine("Set");
 
             if (recLine.Contains("^SCKS: ") || recLine.Contains("+CMTI: ") || recLine.Contains("+CDSI: ") || recLine.Contains("+CLIP: "))
-                Gsm.UnsolicatedEvent(recLine);
+                UnsolicatedEvent();
         }
 
         #endregion
@@ -212,7 +159,7 @@ namespace MelBoxGsm
 
             _wait.Reset();
 
-            if (Debug >> 1 > 0)
+            if (Debug.HasFlag(GsmDebug.RequestGsm))
             {
                 Console.ForegroundColor = ConsoleColor.DarkRed;
                 Console.WriteLine(request);
@@ -226,7 +173,7 @@ namespace MelBoxGsm
 #endif
             }
 
-            if (Debug >> 0 > 0)
+            if (Debug.HasFlag(GsmDebug.AnswerGsm))
             {
                 Console.ForegroundColor = ConsoleColor.DarkGreen;
                 Console.WriteLine(recLine);
@@ -240,5 +187,16 @@ namespace MelBoxGsm
 
         #endregion
 
+        private void UnsolicatedEvent()
+        {
+            if (Debug.HasFlag(GsmDebug.UnsolicatedResult))
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine(recLine);
+                Console.ForegroundColor = ConsoleColor.Gray;
+            }
+
+            Gsm.UnsolicatedEvent(recLine);
+        }
     }
 }

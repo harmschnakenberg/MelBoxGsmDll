@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Timers;
 
 namespace MelBoxGsm
 {
@@ -9,7 +10,7 @@ namespace MelBoxGsm
         public int Index { get; set; }
         public string Status { get; set; }
         public DateTime TimeUtc { get; set; }
-       
+
         private string _Phone = "";
         public string Phone
         {
@@ -26,36 +27,58 @@ namespace MelBoxGsm
 
     }
 
-        public class SmsOut
+    public class SmsOut
+    {
+        public int Reference { get; set; }
+        public DateTime SendTimeUtc { get; set; }
+        public string Phone { get; set; }
+        public string Message { get; set; }
+
+        #region Sendungsverfolgung
+        public int SendTryCounter { get; private set; } = 0;
+
+        public event EventHandler<SmsOut> SmsSentTimeout;
+
+        public void StartTimeout(int minutes)
         {
-            public int Reference { get; set; }
-            public DateTime SendTimeUtc { get; set; }
-            public string Phone { get; set; }
-            public string Message { get; set; }
-            public int SendTryCounter { get; set; } = 0;
+            SendTryCounter++;
+
+            Timer SendTimeout = new Timer();
+            SendTimeout.Interval = minutes * 60000;
+            SendTimeout.AutoReset = false;
+            SendTimeout.Elapsed += SendTimeout_Elapsed;
+            SendTimeout.Start();
         }
 
-        public class Report
+        private void SendTimeout_Elapsed(object sender, ElapsedEventArgs e)
         {
-            public int Index { get; set; }
-            public string Status { get; set; }
-            public int Reference { get; set; }
-            public DateTime ServiceCenterTimeUtc { get; set; }
-            public DateTime DischargeTimeUtc { get; set; }
-            public int DeliveryStatus { get; set; }
+            SmsSentTimeout?.Invoke(this, this);
         }
 
-        public class Property
-        {
-            public Property(string name, object value)
-            {
-                Name = name;
-                Value = value;
-            }
-            public string Name { get; set; }
+        #endregion
+    }
 
-            public object Value { get; set; }
-        }
+    public class Report
+    {
+        public int Index { get; set; }
+        public string Status { get; set; }
+        public int Reference { get; set; }
+        public DateTime ServiceCenterTimeUtc { get; set; }
+        public DateTime DischargeTimeUtc { get; set; }
+        public int DeliveryStatus { get; set; }
+    }
 
-    
+    //public class Property
+    //{
+    //    public Property(string name, object value)
+    //    {
+    //        Name = name;
+    //        Value = value;
+    //    }
+    //    public string Name { get; set; }
+
+    //    public object Value { get; set; }
+    //}
+
+
 }
