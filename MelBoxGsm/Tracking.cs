@@ -106,8 +106,11 @@ namespace MelBoxGsm
                 {                 
                     foreach (SmsOut tracking in trackingList)
                     {
-                        if (tracking.Reference == report.Reference)                        
-                            deleteFromTracking.Add(tracking);                                                   
+                        if (tracking.Reference == report.Reference)
+                        {
+                            tracking.StopTimeout(); //Timeout läuft sonst weiter, da das object SMSOut weiter existiert.
+                            deleteFromTracking.Add(tracking);
+                        }
                     }
                 }
 #if DEBUG
@@ -160,6 +163,19 @@ namespace MelBoxGsm
 
             FailedSmsSendEvent?.Invoke(null, e);
         }
+
+        /// <summary>
+        /// Fragt, ob das Bit in value gesetzt ist
+        /// </summary>
+        /// <param name="value">Wert, der untersucht werden soll</param>
+        /// <param name="position">Bitposition in value</param>
+        /// <returns>true = bit ist gestetzt</returns>
+        private static bool IsBitSet(this int value, int position)
+        {
+            // Return whether bit at position is set to 1.
+            return (value & (1 << position)) != 0;
+        }
+
     }
 
 }

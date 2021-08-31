@@ -31,23 +31,42 @@ namespace MelBoxGsm
     {
         public int Reference { get; set; }
         public DateTime SendTimeUtc { get; set; }
-        public string Phone { get; set; }
+        public string Phone { get; set; }       
         public string Message { get; set; }
 
+
         #region Sendungsverfolgung
+
+        /// <summary>
+        /// Erfolgte Sendeversuche
+        /// </summary>
         public int SendTryCounter { get; private set; } = 0;
 
+        private readonly Timer SendTimeout = new Timer();
+
+        /// <summary>
+        /// Wird getriggert, wenn der Timeout für die Empfangsbestätigung dieser ausgehenden Nachricht abgelaufen ist.
+        /// Dies bedeutet nicht, dass tatsächlich noch keine EMpfangsbestätigung empfangen wurde.
+        /// </summary>
         public event EventHandler<SmsOut> SmsSentTimeout;
 
+        /// <summary>
+        /// Startet den Timer nach dessen Ende die Empfangsbestätigung eingegengen sein sollte.
+        /// </summary>
+        /// <param name="minutes"></param>
         public void StartTimeout(int minutes)
         {
             SendTryCounter++;
 
-            Timer SendTimeout = new Timer();
             SendTimeout.Interval = minutes * 60000;
             SendTimeout.AutoReset = false;
             SendTimeout.Elapsed += SendTimeout_Elapsed;
             SendTimeout.Start();
+        }
+
+        public void StopTimeout()
+        {
+            this.SendTimeout.Stop();
         }
 
         private void SendTimeout_Elapsed(object sender, ElapsedEventArgs e)

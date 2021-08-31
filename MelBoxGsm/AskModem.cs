@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Timers;
 
@@ -6,6 +7,34 @@ namespace MelBoxGsm
 {
     public static partial class Gsm
     {
+
+        /// <summary>
+        /// Regelmäßige Abfrage an Modem nach Signalqualität, Mobilfunkanmeldestatus, Rufumleitung und SMS-Nachrichten im Modemspeicher
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private static void CheckNetworkConnection(object sender, ElapsedEventArgs e)
+        {
+#if DEBUG
+            if (e != null) Console.WriteLine(e.SignalTime ); //Als Lebenszeichen an Console
+#endif
+            bool networkStatusChange = false;
+            networkStatusChange &= HasNetworkRegistrationChanged();
+            networkStatusChange &= HasSignalQualityChanged();
+
+            if (networkStatusChange)
+                NetworkStatusEvent?.Invoke(null, (NetworkRegistration != Registration.Registerd ? 0 : SignalQuality));
+
+            if (!CallForwardingActive && !IsCallForewardingActive())
+                SetCallForewarding(CallForwardingNumber);
+
+            List<SmsIn> smsIn = SmsRead("ALL");
+
+            foreach (SmsIn sms in smsIn)
+            {
+                Console.WriteLine($"Empfangene Sms: {sms.Index} - {sms.Phone}:\t{sms.Message}");
+            }
+        }
 
         /// <summary>
         /// Fragt die Mobilnetzempfangsqualität ab. 
@@ -52,37 +81,15 @@ namespace MelBoxGsm
                 }
             }
 
-            string networkRegistration = string.Empty;
-
             if (int.TryParse(mc[0].Groups[2].Value, out int status))
-            {
-                switch (status)
+            {                
+                if (NetworkRegistration != (Registration)status)
                 {
-                    case 0:
-                        networkRegistration = "nicht registriert";
-                        break;
-                    case 1:
-                        networkRegistration = "registriert";
-                        break;
-                    case 2:
-                        networkRegistration = "suche Netz";
-                        break;
-                    case 3:
-                        networkRegistration = "verweigert";
-                        break;
-                    case 4:
-                        networkRegistration = "unbekannt";
-                        break;
-                    case 5:
-                        networkRegistration = "Roaming";
-                        break;
+                    NetworkRegistration = (Registration)status;
+                    result = true;
                 }
-            }
 
-            if (NetworkRegistration != networkRegistration)
-            {
-                NetworkRegistration = networkRegistration;
-                result = true;
+
             }
 
             return result;
@@ -164,12 +171,16 @@ namespace MelBoxGsm
         /// Liest die Type des Modems aus.
         /// </summary>
         private static void GetModemType()
-        {
-            string answer = Port.Ask("AT+CGMM");
-            MatchCollection mc = Regex.Matches(answer, @"(\w+)\r\n\r\nOK");
+        {       
+            string answer1 = Port.Ask("ATI");
+            Match m1 = Regex.Match(answer1, @"ATI\r\r\n(.+)\r\n(.+)\r\n(.+)\r\n\r\nOK\r\n");
+            if (!m1.Success) return;
+            
+            string manufacturer = m1.Groups[1].Value;
+            string type = m1.Groups[2].Value;
+            string revision = m1.Groups[3].Value;
 
-            if (mc.Count > 0)
-                ModemType = mc[0].Groups[1].Value;
+            ModemType = $"{manufacturer} {type} {revision}";
         }
 
         /// <summary>
@@ -182,7 +193,7 @@ namespace MelBoxGsm
 
             if (mc.Count > 0)
             {
-                OwnName = mc[0].Groups[1].Value.Trim('"');
+                OwnName = mc[0].Groups[1].Value.Trim('"').DecodeUcs2();
                 OwnNumber = mc[0].Groups[2].Value.Trim('"');
             }
         }
@@ -208,7 +219,7 @@ namespace MelBoxGsm
             MatchCollection mc = Regex.Matches(answer, @"\+CSCA: (.+),(\d)");
 
             if (mc.Count > 0)
-                SmsServiceCenterAddress = mc[0].Groups[1].Value.Trim('"');
+                SmsServiceCenterAddress = mc[0].Groups[1].Value.Trim('"').DecodeUcs2();
         }
 
         /// <summary>
@@ -306,12 +317,14 @@ namespace MelBoxGsm
         /// Aktiviert die Rufumleitung auf die Angegeben Telefonnummer
         /// </summary>
         /// <param name="phone">Nummer zu der Sprachanrufe umgeleitet werdne sollen.</param>
-        private static void SetCallForewarding(string phone)
+        public static void SetCallForewarding(string phone)
         {
             MatchCollection mc = Regex.Matches(phone, @"\+(\d+)");
 
+            if (RingSecondsBeforeCallForwarding == 0) RingSecondsBeforeCallForwarding = 5;
+
             if (mc.Count > 0)
-                _ = Port.Ask($"AT+CCFC=2,3,\"{phone}\",145,1,{RingSecondsToCallForwarding}", 5000);
+                _ = Port.Ask($"AT+CCFC=2,3,\"{phone}\",145,1,{RingSecondsBeforeCallForwarding}", 5000);
 
             _ = IsCallForewardingActive();
         }
@@ -335,19 +348,45 @@ namespace MelBoxGsm
         }
 
         /// <summary>
+        /// Setzt die Codierung des GSM-Modems
+        /// </summary>
+        /// <param name="chset">Für MC75: 'GSM' Standard, 'UCS2' 16-bit hexadecimal</param>
+        private static void SetCharacterset(string chset = "GSM")
+        {
+            //Setze Codierung in GSM Modem. Siehe Seite 53 (Kap. 2.136)
+
+            _ = Port.Ask($"AT+CSCS=\"{chset}\"");
+
+            string answer = Port.Ask("AT+CSCS?");
+
+            Match m = Regex.Match(answer, @"\+CSCS: ""(.+)""");
+
+            if (m.Success)            
+                GsmCharacterSet = m.Groups[1].Value;            
+        }
+
+
+        /// <summary>
         /// Legt fest, ob ein Ereignis ausgelöst werden soll, wenn das Modem eine neue Nachricht empfangen hat.
         /// </summary>
         /// <param name="sms">true = Ereignis bei eingehener SMS</param>
         /// <param name="statusreport">true = Ereignis bei eingehendem Stausreport</param>
         private static void SetNewSmsRecNotification(bool sms = true, bool statusreport = true)
         {
+            bool unicode = GsmCharacterSet != "GSM";
+
+            //Validity-Period https://de.wammu.eu/docs/devel/internals/gammu-message_8h_source.html Zeile 233ff
+            int vp_min = 60;
+            int vp = (vp_min / 5) - 1; // bis vp_min = 720 min. (12 h) // vp: 11 = 1h, 71 = 6h, 167  = 1d, 255 = max_time
+
             //Setze Parameter für SMS Textmode. Siehe Seite 375f (Kap. 13.16)
             //Quelle: https://www.codeproject.com/questions/271002/delivery-reports-in-at-commands
             //Quelle: https://www.smssolutions.net/tutorials/gsm/sendsmsat/
             //AT+CSMP=<fo> [,  <vp> / <scts> [,  <pid> [,  <dcs> ]]]
-            // <fo> First Octet:
+            // <fo> First Octet: 1 = SMS senden 2 = ?, 4 = Reject Duplicates, do not return a message ID when a message with the same destination and ID is still pending, 8 = ? , 16 = has validity period, 32 = Request delivery report),  
             // <vp> Validity-Period: 0 - 143 (vp+1 x 5min), 144 - 167 (12 Hours + ((VP-143) x 30 minutes)), [...]
-            _ = Port.Ask("AT+CSMP=49,2,0,0");
+            // <dcs> DataCodingScheme: 0 = GSM, 8 = Unicode 
+            _ = Port.Ask($"AT+CSMP=49,{vp},0,{(unicode ? 8 : 0)}");
 
             //Sendeempfangsbestätigungen abonieren. Siehe Seite 367ff (Kap. 13.11)
             //AT+CNMI= [ <mode> ][,  <mt> ][,  <bm> ][,  <ds> ][,  <bfr> ]
@@ -357,124 +396,7 @@ namespace MelBoxGsm
             _ = Port.Ask($"AT+CNMI=2,{mt},2,{ds},1");
         }
 
-        /// <summary>
-        /// Ereignisse (ungetriggerte Zeichenfolge) von Modem 
-        /// </summary>
-        /// <param name="recLine">empfang</param>
-        internal static void UnsolicatedEvent(string recLine)
-        {            
-            #region SIM-Schubfach
-            Match m1 = Regex.Match(recLine, @"^SCKS: (\d)");
 
-            if (m1.Success && int.TryParse(m1.Groups[1].Value, out int SimTrayStatus))
-            {
-                if (SimTrayStatus == 1) 
-                    SetupModem();
-                else
-                {
-                    LastError = new Tuple<DateTime, string>(DateTime.Now, "Keine SIM-Karte detektiert.");
-
-                    NewErrorEvent?.Invoke(null, $"{LastError.Item1:yyyy-MM-dd HH:mm:ss}: {LastError.Item2}");
-                }
-            }
-
-            #endregion
-
-            #region neue SMS oder Statusreport empfangen
-            Match m2 = Regex.Match(recLine, @"\+C(?:MT|DS)I: ");
-
-            if (m2.Success)
-            {
-                System.Collections.Generic.List<SmsIn> smsIn = SmsRead();
-
-                foreach (SmsIn sms in smsIn)
-                {
-                    Console.WriteLine($"Empfangene Sms: {sms.Index} - {sms.Phone}:\t{sms.Message}");
-                }
-            }
-
-            #endregion
-
-            #region Sprachanruf empfangen (Ereignis wird beim Klingeln erzeugt)
-            Match m3 = Regex.Match(recLine, @"\+CLIP: (.+),(?:\d+),,,,(?:\d+)");
-
-            if (m3.Success)
-            {
-                string callFrom = m3.Groups[1].Value.Trim('"');
-
-                if (callFrom != lastIncomingCallNumber)
-                {
-                    lastIncomingCallNumber = callFrom;
-                    Log.Info($"Sprachanruf von Anrufer >{callFrom}<", 31016);
-                    NewCallRecieved?.Invoke(null, callFrom);
-
-                    Timer callNotifcationTimer = new Timer(20000); //Anrufe von diese Nummer für 20 sec. nicht signalisieren
-                    callNotifcationTimer.Elapsed += CallNotifcationTimer_Elapsed;
-                    callNotifcationTimer.AutoReset = false;
-                    callNotifcationTimer.Start();
-                }
-            }
-            #endregion
-        }
-
-        /// <summary>
-        /// Hilfsvariable, damit eingehende Sprachanrufe nur einmal und nicht bei jedem Klingeln gemeldet werden. 
-        /// </summary>
-        private static string lastIncomingCallNumber = "";
-
-        /// <summary>
-        /// Hilfstimer, damit eingehende Sprachanrufe nur einmal und nicht bei jedem Klingeln gemeldet werden. 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private static void CallNotifcationTimer_Elapsed(object sender, ElapsedEventArgs e)
-        {
-            lastIncomingCallNumber = "";
-        }
-
-        /// <summary>
-        /// Sind Sonderzeochen in einer SMS empfangen, wird das Encoding vom mOdem/Provider nach UCS2 (= HEX-Code)geändert.
-        /// Hiermit wird das HEX-Format in Unicode umgewandelt.
-        /// </summary>
-        /// <param name="ucs2">SMS-Inhalt im UCS2-Format</param>
-        /// <returns></returns>
-        public static string DecodeUcs2(string ucs2)
-        {
-            //UCS2 ist Fallback-Encode, wenn Standard GSM-Encode nicht ausreicht.
-            ucs2 = ucs2.Trim();
-            System.Collections.Generic.List<byte> bytes = new System.Collections.Generic.List<byte>();
-
-            for (int i = 0; i < ucs2.Length; i += 2)
-            {
-                string str = ucs2.Substring(i, 2);
-                bytes.Add(byte.Parse(str, System.Globalization.NumberStyles.HexNumber));
-#if DEBUG
-                Console.Write(str + " ");
-#endif
-            }
-            //#if DEBUG
-            //            Console.WriteLine();
-
-            //            string result = "Unicode: " + System.Text.Encoding.Unicode.GetString(bytes.ToArray());
-            //            result += Environment.NewLine + "UTF8:      " + System.Text.Encoding.UTF8.GetString(bytes.ToArray());
-            //            result += Environment.NewLine + "Default:   " + System.Text.Encoding.Default.GetString(bytes.ToArray());
-            //            result += Environment.NewLine + "UTF7:      " + System.Text.Encoding.UTF7.GetString(bytes.ToArray());
-            //            result += Environment.NewLine + "ASCII:     " + System.Text.Encoding.ASCII.GetString(bytes.ToArray());
-            //            result += Environment.NewLine + "BigEndian: " + System.Text.Encoding.BigEndianUnicode.GetString(bytes.ToArray());
-            //#endif
-            return System.Text.Encoding.BigEndianUnicode.GetString(bytes.ToArray());
-        }
-
-        /// <summary>
-        /// Bei GSM-Encoding werden Umlaute als andere Zeichen interpretiert. 
-        /// NOCH TESTEN: Werden die ersetzten Sonderzeichne in unseren SMSen verwendet?
-        /// </summary>
-        /// <param name="input">SMS-Inhalt im GSM-Encoding mit 'verbogenen' Umlauten</param>
-        /// <returns>Inhalt mit Umlauten</returns>
-        private static string DecodeUmlaute(string input)
-        {
-            return input.Replace('[', 'Ä').Replace('\\', 'Ö').Replace('^', 'Ü').Replace('{', 'ä').Replace('|', 'ö').Replace('~', 'ü');
-        }
 
     }
 }

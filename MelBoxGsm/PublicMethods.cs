@@ -11,7 +11,7 @@ namespace MelBoxGsm
         /// <summary>
         /// Timer für zyklische Modemabfrage
         /// </summary>
-        static readonly Timer askingTimer = new Timer(19000);// wenn unsolicated SMS-Delivery +CMTI: / StatusReport +CDSI: funktioniert ca 1 Minute, sonst 10-30 sec?
+        static readonly Timer askingTimer = new Timer(19000); // 10-30 sec?
 
 
         /// <summary>
@@ -25,6 +25,7 @@ namespace MelBoxGsm
             GetModemType();
             SetErrorFormat();
             SetSimTrayNotification();
+            SetCharacterset(GsmCharacterSet);
 
             //SIM-Karte
             GetSimPinStatus(SimPin);
@@ -44,6 +45,13 @@ namespace MelBoxGsm
 
         }
 
+        /// <summary>
+        /// Schließt den Seriellen Port.
+        /// </summary>
+        public static void ModemShutdown()
+        {
+            Port.Close();
+        }
 
         /// <summary>
         /// Versendet eine SMS. Nach Absenden wird das Ereignis 'SmsSentEvent' ausgelöst
@@ -112,12 +120,7 @@ namespace MelBoxGsm
                     string timeStr = m.Groups[6].Value;
                     int timeZone = int.Parse(m.Groups[7].Value.Trim('"')) / 4;
 
-                    string message = m.Groups[8].Value.TrimEnd('\r');
-
-                    if (message.StartsWith("00")) //UCS-Codiert?
-                        message = DecodeUcs2(message);
-
-                    message = DecodeUmlaute(message); //in GSM-Encoding korrigieren Umlaute
+                    string message = m.Groups[8].Value.TrimEnd('\r').DecodeUcs2();
 
                     _ = DateTime.TryParse($"{dateStr} {timeStr}", out DateTime time);
 
@@ -129,7 +132,7 @@ namespace MelBoxGsm
                         Status = status,
                         Phone = phone,
                         TimeUtc = time.AddHours(-timeZone),
-                        Message = message
+                        Message = message.DecodeUmlaute() //korrigiere Umlaut bei GSM-Encoding
                     };
 
                     newSms.Add(sms);
@@ -165,37 +168,215 @@ namespace MelBoxGsm
             _ = Port.Ask("AT+CMGD=" + index);
         }
 
+
         /// <summary>
-        /// Regelmäßige Abfrage an Modem nach Signalqualität, Mobilfunkanmeldestatus, Rufumleitung und SMS-Nachrichten im Modemspeicher
+        /// Geht davon aus, dass ein String der mit '00' beginnt in hexadezimalschreibweise (UCS2-Characterset) vorliegt und wandelt das HEX-Format in Unicode um.
+        /// Beginnt der String nicht mit '00' wird er unverändert zurückgegeben.
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private static void CheckNetworkConnection(object sender, ElapsedEventArgs e)
+        /// <param name="ucs2">SMS-Inhalt im GSM- oder UCS2-Format</param>
+        /// <returns>EIngabe-String als Unicode</returns>
+        public static string DecodeUcs2(this string ucs2)
         {
-#if DEBUG
-            if (e != null) Console.WriteLine(e.SignalTime ); //Als Lebenszeichen an Console
-#endif
-            bool networkStatus = false;
-            networkStatus &= HasNetworkRegistrationChanged();
-            networkStatus &= HasSignalQualityChanged();
+            if (!ucs2.StartsWith("00"))
+                return ucs2;
 
-            if ( networkStatus )
-                NetworkStatusEvent?.Invoke(null, (NetworkRegistration != "registriert" ? 0 : SignalQuality) );
-            
-            if (!CallForwardingActive && !IsCallForewardingActive())
-                SetCallForewarding(CallForwardingNumber);
+            //UCS2 ist Fallback-Encode, wenn Standard GSM-Encode nicht ausreicht.
+            ucs2 = ucs2.Trim();
+            System.Collections.Generic.List<byte> bytes = new System.Collections.Generic.List<byte>();
 
-            List<SmsIn> smsIn = SmsRead("ALL");
-
-            foreach (SmsIn sms in smsIn)
+            for (int i = 0; i < ucs2.Length; i += 2)
             {
-                Console.WriteLine($"Empfangene Sms: {sms.Index} - {sms.Phone}:\t{sms.Message}");
+                string str = ucs2.Substring(i, 2);
+                bytes.Add(byte.Parse(str, System.Globalization.NumberStyles.HexNumber));
+#if DEBUG
+                Console.Write(str + " ");
+#endif
+            }
+
+            return System.Text.Encoding.BigEndianUnicode.GetString(bytes.ToArray());
+        }
+
+        /// <summary>
+        /// Erstellt eine hexadezimale bytereihe des übergebenen String.
+        /// </summary>
+        /// <param name="str"></param>
+        /// <returns></returns>
+        public static string EncodeUcs2(this string str)
+        {
+            if (GsmCharacterSet == "GSM")
+            {
+                return str;
+            }
+            else
+            {
+                byte[] bytes = System.Text.Encoding.BigEndianUnicode.GetBytes(str);
+
+                return BitConverter.ToString(bytes).Replace("-", string.Empty);
             }
         }
 
-        public static void ModemShutdown()
+        /// <summary>
+        /// Bei GSM-Encoding werden Umlaute als andere Zeichen interpretiert. 
+        /// NOCH TESTEN: Werden die ersetzten Sonderzeichne in unseren SMSen verwendet?
+        /// </summary>
+        /// <param name="input">SMS-Inhalt im GSM-Encoding mit 'verbogenen' Umlauten</param>
+        /// <returns>Inhalt mit Umlauten</returns>
+        private static string DecodeUmlaute(this string input)
         {
-            Port.Close();
+            if (GsmCharacterSet == "GSM")
+                return input.Replace('[', 'Ä').Replace('\\', 'Ö').Replace('^', 'Ü').Replace('{', 'ä').Replace('|', 'ö').Replace('~', 'ü');
+            else
+                return input;
         }
+
+
+        /// <summary>
+        /// Der Empfangsstatus wird im Status-report als Byte ausgegeben. Diese Funktion interpretiert das Byte und gibt aus
+        /// - einen generellen Status 
+        /// - eine detaillierte Erklärung
+        /// - einen Icon-Namen für die Darstellung in der Weboberfläche (siehe Google Material icons https://fonts.google.com/icons?selected=Material+Icons+Outlined)
+        /// </summary>
+        /// <param name="TP_ST">Statusbyte aus STATUS-REPORT von Modem</param>
+        /// <param name="detailedStatus">genauer status von Servicecenter</param>
+        /// <param name="icon">Icon-Name zur Darstellung in der Weboberfläche</param>
+        /// <returns>genereller Status des Sendeerfolgs</returns>
+        public static string GetDeliveryStatus(int TP_ST, out string detailedStatus, out string icon)
+        {
+
+            #region Detaillierter Sendestatus
+            switch (TP_ST)
+            {
+                case 0x00: //0
+                    detailedStatus = "SMS wurde empfangen"; // "SMS empfangen received by the Empänger"; //SMS SessionManagement
+                    break;
+                case 0x01: //1
+                    detailedStatus = "SMS vom ServiceCenter an Empfänger weitergeleitet, aber Empfang konnte nicht bestätigt werden"; // "SMS forwarded by the ServiceCenter to the Empänger but the ServiceCenter is unable to confirm delivery";
+                    break;
+                case 0x02: //2
+                    detailedStatus = "SMS wurde vom ServiceCenter ersetzt"; // "SMS replaced by the ServiceCenter";
+                    break;
+                case 0x20: //32
+                    detailedStatus = "Überlastung";// "Congestion";
+                    break;
+                case 0x21: //33
+                    detailedStatus = "Empänger beschäftigt";
+                    break;
+                case 0x22: //34
+                    detailedStatus = "Keine Antwort vom Empänger";
+                    break;
+                case 0x23: //35
+                    detailedStatus = "Service abgelehnt";
+                    break;
+                case 0x24: //36
+                    detailedStatus = "Servicequalität nicht ausreichend"; // "Quality of service not available";
+                    break;
+                case 0x25: //37
+                    detailedStatus = "Fehler beim  Empänger";
+                    break;
+                case 0x40: //64
+                    detailedStatus = "Verarbeitungsfehler auf der Gegenseite"; // "Remote procedure error";
+                    break;
+                case 0x41: //65
+                    detailedStatus = "Ziel ist inkompatibel"; //"Incompatible destination";
+                    break;
+                case 0x42: //66
+                    detailedStatus = "Verbindung durch Empänger abgelehnt";
+                    break;
+                case 0x43: //67
+                    detailedStatus = "Nicht erreichbar"; // "Not obtainable";
+                    break;
+                case 0x44: //68
+                    detailedStatus = "Servicequalität nicht ausreichend"; //"Quality of service not available";
+                    break;
+                case 0x45: //69
+                    detailedStatus = "Übertragungsnetz nicht verfügbar"; // "No internetworking available";
+                    break;
+                case 0x46: //70
+                    detailedStatus = "Gültigkeitszeitraum der SMS überschritten"; // "SMS Validity Period Expired";
+                    break; 
+                case 0x47: //71
+                    detailedStatus = "SMS gelöscht durch Ursprungsempänger"; // "SMS deleted by originating Empänger";
+                    break;
+                case 0x48: //72
+                    detailedStatus = "SMS gelöscht durch ServiceCenter Administration"; // "SMS Deleted by ServiceCenter Administration";
+                    break;
+                case 0x49: //73
+                    detailedStatus = "SMS existiert nicht"; // "SMS does not exist";
+                    break;
+                case 0x60: //96
+                    detailedStatus = "Überlastung"; // "Congestion";
+                    break;
+                case 0x61: //97
+                    detailedStatus = "Empänger beschäftigt";
+                    break;
+                case 0x62: //98
+                    detailedStatus = "Keine Antwort vom Empänger";
+                    break;
+                case 0x63: //99
+                    detailedStatus = "Service abgelehnt";
+                    break;
+                case 0x64: //100
+                    detailedStatus = "Servicequalität nicht ausreichend"; //"Quality of service not available";
+                    break;
+                case 0x65: //101
+                    detailedStatus = "Fehler beim Empänger";
+                    break;
+                case 256: //Selbst hinzugefügt!
+                    detailedStatus = "SMS an Modem zum Senden geleitet";
+                    break;
+                case 512: //Selbst hinzugefügt!
+                    detailedStatus = "erneuter Sendeversuch";
+                    break;
+                default:
+                    detailedStatus = $"Sendestatus ist reserviert oder ServiceCenter-spezifisch: {TP_ST}";
+                    break;
+            }
+            /* See GSM 03.40 section 9.2.3.15 (TP-Status) Seite 51*/
+
+            string generalStatus;
+            #endregion
+
+            #region genereller Sendeerfolg
+
+            /// 0-31:     delivered or, more generally, other transaction completed.
+            /// 32-63:    still trying to deliver the message.
+            /// 64-127:   not making any more delivery attempts.
+            
+            if (TP_ST < 3) // 0x03
+            {
+                generalStatus = "Nachricht ausgeliefert";
+                icon = "check_circle_outline";
+            }
+            else if (TP_ST.IsBitSet(6)) // 64 = 0x40            
+            {
+                generalStatus = "Senden fehlgeschlagen";
+                icon = "highlight_off";
+            }
+            else if (TP_ST.IsBitSet(5)) // 32 = 0x20             
+            {
+                generalStatus = "Warte auf Antwort";
+                icon = "timer"; //"pending";
+            }
+            else
+            {
+                generalStatus = "Unbekannt";
+                icon = "help_outline";
+            }
+
+            return generalStatus;
+            #endregion
+
+        }
+
+        public enum DeliveryStatus
+        {            
+            Success = 0,
+            ServiceDenied = 35,
+            QueuedToSend = 256,
+            SendRetry = 512,
+            Simulated = 1024
+        }
+
+
     }
 }

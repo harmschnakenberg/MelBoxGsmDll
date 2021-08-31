@@ -20,16 +20,59 @@ namespace MelBoxGsm
         public static int MaxSendTrysPerSms { get; set; } = 2;
 
         /// <summary>
-        /// Muss 
+        /// Muss eine gültige Telefonnummer sein
         /// </summary>
         public static string AdminPhone { get; set; } = def;
 
+        /// <summary>
+        /// Telefonnummer an die Sprachanrufe weitergeleitet werden sollen.
+        /// </summary>
         public static string CallForwardingNumber { get; set; } = def;
 
+        /// <summary>
+        /// Mobilfunknetzqualität in %
+        /// </summary>
         public static int SignalQuality { get; private set; }
 
-        public static string NetworkRegistration { get; private set; } = def;
+        public enum Registration
+        {
+            NotRegistered = 0,
+            Registerd = 1,
+            Searching = 2,
+            Denied = 3,
+            Unknown = 4,
+            Roaming = 5
+        }
 
+        /// <summary>
+        /// Registrierungsstatus im Mobilfunknetz
+        /// </summary>
+        public static Registration NetworkRegistration { get; private set; } = Registration.Unknown;
+
+        public static string RegToString(this Registration reg )
+        {
+            switch ((int) reg)
+            {
+                case 0:
+                    return "nicht registriert";
+                case 1:
+                    return "registriert";
+                case 2:
+                    return "suche Netz";
+                case 3:
+                    return "Verbindung verweigert";
+                case 4:
+                    return "unbekannt";
+                case 5:
+                    return "Roaming";
+                default:
+                    return "-ungültig-";
+            }
+        }
+
+        /// <summary>
+        /// true = Änderungen im Registrierungsstatus werden unaufgefordert vom Modem angezeigt.
+        /// </summary>
         public static bool IsNetworkRegistrationNotificationActive { get; private set; }
 
         public static bool IsGsmTextMode { get; private set; }
@@ -54,11 +97,13 @@ namespace MelBoxGsm
 
         public static bool CallForwardingActive { get; private set; } = false;
 
-        public static int RingSecondsToCallForwarding { get; set; } = 5;
+        public static int RingSecondsBeforeCallForwarding { get; set; } = 5;
+
+        public static string GsmCharacterSet { get; set; } = "GSM";
 
         /// <summary>
         /// Der Zuletzt vom Modem gemeldete Fehler mit Zeit der Meldung
         /// </summary>
-        public static Tuple<DateTime, string> LastError { get; private set; } = new Tuple<DateTime, string>(DateTime.Now, "-kein Fehler-");
+        public static Tuple<DateTime, string> LastError { get; private set; } = new Tuple<DateTime, string>(DateTime.Now, "seit Neustart kein Fehler");
     }
 }

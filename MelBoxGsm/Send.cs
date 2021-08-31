@@ -33,9 +33,9 @@ namespace MelBoxGsm
             if (currentSendSms != null || sendList.Count == 0) return;
 
             currentSendSms = sendList.Dequeue();
-
-            _ = Port.Ask("AT+CMGS=\"" + currentSendSms.Phone + "\"\r");
-            string answer = Port.Ask(currentSendSms.Message + ctrlz, 5000);
+            
+            _ = Port.Ask("AT+CMGS=\"" + currentSendSms.Phone.EncodeUcs2() + "\"\r");
+            string answer = Port.Ask(currentSendSms.Message.EncodeUcs2() + ctrlz, 5000);
 
             Match m = Regex.Match(answer, @"\+CMGS: (\d+)");
 

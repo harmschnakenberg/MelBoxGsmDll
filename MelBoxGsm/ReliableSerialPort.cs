@@ -17,6 +17,7 @@ namespace MelBoxGsm
 
             if (ports.Length == 0)
             {
+                Log.Error("Es sind keine COM-Ports vorhanden.", 1158);
                 throw new Exception("Es sind keine COM-Ports vorhanden.");
             }
 
@@ -38,6 +39,8 @@ namespace MelBoxGsm
             ReceivedBytesThreshold = 1024;
             WriteTimeout = 300;
             ReadTimeout = 500;
+            //RtsEnable = true; //TEST
+            
 
         }
 
@@ -119,6 +122,8 @@ namespace MelBoxGsm
         }
 
         public const string Terminator = "\r\nOK\r\n";
+        public const string ErrorIndicator = "ERROR";
+
         static string recLine = string.Empty;
 
         /// <summary>
@@ -129,7 +134,7 @@ namespace MelBoxGsm
         {
             recLine += System.Text.Encoding.UTF8.GetString(data);
 
-            if (recLine.Contains("ERROR"))
+            if (recLine.Contains(ErrorIndicator))
             {
                 Gsm.ParseErrorResponse(recLine);
                 _wait.Set();
@@ -138,10 +143,9 @@ namespace MelBoxGsm
             //Melde empfangne Daten, wenn...
             if (recLine.Contains(Terminator))
                 _wait.Set();
-            //if (_wait.Set()) Console.WriteLine("Set");
 
-            if (recLine.Contains("^SCKS: ") || recLine.Contains("+CMTI: ") || recLine.Contains("+CDSI: ") || recLine.Contains("+CLIP: "))
-                UnsolicatedEvent();
+            //Prüfe auf unerwartete Meldungen vom Modem
+            Gsm.CeckUnsolicatedIndicators(recLine);
         }
 
         #endregion
@@ -187,16 +191,6 @@ namespace MelBoxGsm
 
         #endregion
 
-        private void UnsolicatedEvent()
-        {
-            if (Debug.HasFlag(GsmDebug.UnsolicatedResult))
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine(recLine);
-                Console.ForegroundColor = ConsoleColor.Gray;
-            }
-
-            Gsm.UnsolicatedEvent(recLine);
-        }
+       
     }
 }
