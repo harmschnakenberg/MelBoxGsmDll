@@ -106,10 +106,13 @@ namespace MelBoxGsm
                 {                 
                     foreach (SmsOut tracking in trackingList)
                     {
-                        if (tracking.Reference == report.Reference)
+                        if (tracking.Reference == report.Reference && report.DeliveryStatus < 3) // Report mit passender Referenz und Erfolgsmeldung streichen
                         {
                             tracking.StopTimeout(); //Timeout läuft sonst weiter, da das object SMSOut weiter existiert.
                             deleteFromTracking.Add(tracking);
+//#if DEBUG
+                            Console.WriteLine($"StatusReports für SMS [{report.Reference}] an >{tracking.Phone}< >{tracking.Message}< erhalten. Sendestatus = " + report.DeliveryStatus);
+//#endif
                         }
                     }
                 }
@@ -117,7 +120,6 @@ namespace MelBoxGsm
                 Console.WriteLine($"StatusReports für Refernez [{report.Reference}] an Index [{report.Index}] wird aus dem Modem gelöscht. Sendestatus = " + report.DeliveryStatus);
 #endif
                 SmsDelete(report.Index);
-
             }
 
             foreach (SmsOut delete in deleteFromTracking) //lösche hier, denn Liste darf erste nach for..each Loop verändert werrden.

@@ -7,7 +7,7 @@ namespace MelBoxGsm
     /// <summary>
     /// Klasse bietet grundlegende Verbindung, Schreib- und Lesevorgänge über COM-Port.
     /// </summary>
-    public class ReliableSerialPort : SerialPort
+    public class ReliableSerialPort : SerialPort 
     {
         #region Connection
         public ReliableSerialPort(string portName = "", int baudRate = 38400, Parity parity = Parity.None, int dataBits = 8, StopBits stopBits = StopBits.One)
@@ -17,8 +17,8 @@ namespace MelBoxGsm
 
             if (ports.Length == 0)
             {
-                Log.Error("Es sind keine COM-Ports vorhanden.", 1158);
-                throw new Exception("Es sind keine COM-Ports vorhanden.");
+                Log.Error("Es wurden keine COM-Ports erkannt.", 1158);
+                throw new Exception("Es wurden keine COM-Ports erkannt.");
             }
 
             if (!Array.Exists(ports, x => x == portName))
@@ -40,8 +40,7 @@ namespace MelBoxGsm
             WriteTimeout = 300;
             ReadTimeout = 500;
             //RtsEnable = true; //TEST
-            
-
+            ErrorReceived += SerialPortErrorEvent;             
         }
 
         public static GsmDebug Debug { get; set; } = GsmDebug.UnsolicatedResult;
@@ -69,13 +68,13 @@ namespace MelBoxGsm
                 catch
                 {
                     Console.WriteLine(base.PortName + " verbleibende Verbindungsversuche: " + Try);
-                    System.Threading.Thread.Sleep(2000);
+                    System.Threading.Thread.Sleep(3000);
                 }
 #pragma warning restore CA1031 // Do not catch general exception types
             } while (!base.IsOpen && --Try > 0);
 
             if (!base.IsOpen)
-            {
+            {                
                 string errorText = $"Der COM-Port {base.PortName} ist nicht bereit. Das Programm wird beendet.";
                 Console.WriteLine(errorText);
                 base.Close();
@@ -191,6 +190,12 @@ namespace MelBoxGsm
 
         #endregion
 
-       
+        /// <summary>
+        /// Wird ausgelöst, wenn vom GSM-Modem eine Fehlermeldung zurückggegeben wird.
+        /// </summary>
+        public static event SerialErrorReceivedEventHandler SerialPortErrorEvent;
+
+
+
     }
 }

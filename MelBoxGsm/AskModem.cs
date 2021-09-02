@@ -49,6 +49,8 @@ namespace MelBoxGsm
             {
                 quality = (int)(quality / 0.32); //in %
 
+                if (quality > 100) quality = 0;
+
                 if (SignalQuality != quality)
                 {
                     SignalQuality = quality;

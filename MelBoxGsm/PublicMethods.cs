@@ -7,6 +7,14 @@ namespace MelBoxGsm
 {
     public static partial class Gsm
     {
+        public enum DeliveryStatus
+        {
+            EmailNoStatus = -1,
+            ServiceDenied = 35,
+            QueuedToSend = 256,
+            SendRetry = 512,
+            Simulated = 1024            
+        }
 
         /// <summary>
         /// Timer für zyklische Modemabfrage
@@ -19,7 +27,7 @@ namespace MelBoxGsm
         /// </summary>
         public static void SetupModem()
         {
-            Log.Info($"Modem wird an {SerialPortName} initialisiert.", 102);
+            Log.Info($"Modem wird an {SerialPortName} initialisiert. Abfrageintervall {askingTimer.Interval/1000} sek.", 102);
 
             //Modem
             GetModemType();
@@ -50,7 +58,9 @@ namespace MelBoxGsm
         /// </summary>
         public static void ModemShutdown()
         {
-            Port.Close();
+            Port.DiscardInBuffer();
+            Port.DiscardOutBuffer();
+            Port.Close(); //Calling Close is equal to calling Dispose(true)
         }
 
         /// <summary>
@@ -229,7 +239,6 @@ namespace MelBoxGsm
                 return input;
         }
 
-
         /// <summary>
         /// Der Empfangsstatus wird im Status-report als Byte ausgegeben. Diese Funktion interpretiert das Byte und gibt aus
         /// - einen generellen Status 
@@ -246,86 +255,98 @@ namespace MelBoxGsm
             #region Detaillierter Sendestatus
             switch (TP_ST)
             {
-                case 0x00: //0
+                #region erfolgreich versendet
+                case 0x00: //0      00000000
                     detailedStatus = "SMS wurde empfangen"; // "SMS empfangen received by the Empänger"; //SMS SessionManagement
                     break;
-                case 0x01: //1
+                case 0x01: //1      00000001
+                case 3:
                     detailedStatus = "SMS vom ServiceCenter an Empfänger weitergeleitet, aber Empfang konnte nicht bestätigt werden"; // "SMS forwarded by the ServiceCenter to the Empänger but the ServiceCenter is unable to confirm delivery";
                     break;
-                case 0x02: //2
+                case 0x02: //2      00000010
                     detailedStatus = "SMS wurde vom ServiceCenter ersetzt"; // "SMS replaced by the ServiceCenter";
                     break;
-                case 0x20: //32
+                #endregion
+                #region Temporäre Fehler, ServiceCenter versucht weiter zu senden
+                case 0x20: //32     01000000
                     detailedStatus = "Überlastung";// "Congestion";
                     break;
-                case 0x21: //33
+                case 0x21: //33     01000010
                     detailedStatus = "Empänger beschäftigt";
                     break;
-                case 0x22: //34
+                case 0x22: //34     0100010
                     detailedStatus = "Keine Antwort vom Empänger";
                     break;
-                case 0x23: //35
+                case 0x23: //35     0100011
                     detailedStatus = "Service abgelehnt";
                     break;
-                case 0x24: //36
+                case 0x24: //36     0100100
                     detailedStatus = "Servicequalität nicht ausreichend"; // "Quality of service not available";
                     break;
-                case 0x25: //37
+                case 0x25: //37     0100101
                     detailedStatus = "Fehler beim  Empänger";
                     break;
-                case 0x40: //64
+                #endregion
+                #region Permanente Fehler, ServiceCenter bricht Senden ab
+                case 0x40: //64     1000000
                     detailedStatus = "Verarbeitungsfehler auf der Gegenseite"; // "Remote procedure error";
                     break;
-                case 0x41: //65
+                case 0x41: //65     1000001
                     detailedStatus = "Ziel ist inkompatibel"; //"Incompatible destination";
                     break;
-                case 0x42: //66
+                case 0x42: //66     1000010
                     detailedStatus = "Verbindung durch Empänger abgelehnt";
                     break;
-                case 0x43: //67
+                case 0x43: //67     1000011
                     detailedStatus = "Nicht erreichbar"; // "Not obtainable";
                     break;
-                case 0x44: //68
+                case 0x44: //68     1000100
                     detailedStatus = "Servicequalität nicht ausreichend"; //"Quality of service not available";
                     break;
-                case 0x45: //69
+                case 0x45: //69     1000101
                     detailedStatus = "Übertragungsnetz nicht verfügbar"; // "No internetworking available";
                     break;
-                case 0x46: //70
+                case 0x46: //70     1000110
                     detailedStatus = "Gültigkeitszeitraum der SMS überschritten"; // "SMS Validity Period Expired";
                     break; 
-                case 0x47: //71
-                    detailedStatus = "SMS gelöscht durch Ursprungsempänger"; // "SMS deleted by originating Empänger";
+                case 0x47: //71     1000111
+                    detailedStatus = "SMS gelöscht durch Sender"; // "SMS deleted by originating Empänger";
                     break;
-                case 0x48: //72
+                case 0x48: //72     1001000
                     detailedStatus = "SMS gelöscht durch ServiceCenter Administration"; // "SMS Deleted by ServiceCenter Administration";
                     break;
-                case 0x49: //73
+                case 0x49: //73     1001001
                     detailedStatus = "SMS existiert nicht"; // "SMS does not exist";
                     break;
-                case 0x60: //96
+                
+                case 0x60: //96     1100000
                     detailedStatus = "Überlastung"; // "Congestion";
                     break;
-                case 0x61: //97
+                case 0x61: //97     1100001
                     detailedStatus = "Empänger beschäftigt";
                     break;
-                case 0x62: //98
+                case 0x62: //98     1100010
                     detailedStatus = "Keine Antwort vom Empänger";
                     break;
-                case 0x63: //99
+                case 0x63: //99     1100011
                     detailedStatus = "Service abgelehnt";
                     break;
-                case 0x64: //100
+                case 0x64: //100    1100100
                     detailedStatus = "Servicequalität nicht ausreichend"; //"Quality of service not available";
                     break;
-                case 0x65: //101
+                case 0x65: //101    1100101
                     detailedStatus = "Fehler beim Empänger";
                     break;
+                #endregion
+
                 case 256: //Selbst hinzugefügt!
                     detailedStatus = "SMS an Modem zum Senden geleitet";
                     break;
                 case 512: //Selbst hinzugefügt!
                     detailedStatus = "erneuter Sendeversuch";
+                    break;
+                case -1: //Selbst hinzugefügt!
+                    detailedStatus = "Email ohne Fehlermeldung abgesetzt";
                     break;
                 default:
                     detailedStatus = $"Sendestatus ist reserviert oder ServiceCenter-spezifisch: {TP_ST}";
@@ -368,14 +389,7 @@ namespace MelBoxGsm
 
         }
 
-        public enum DeliveryStatus
-        {            
-            Success = 0,
-            ServiceDenied = 35,
-            QueuedToSend = 256,
-            SendRetry = 512,
-            Simulated = 1024
-        }
+
 
 
     }
