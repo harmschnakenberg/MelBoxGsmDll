@@ -23,7 +23,7 @@ namespace MelBoxGsm
             networkStatusChange &= HasSignalQualityChanged();
 
             if (networkStatusChange)
-                NetworkStatusEvent?.Invoke(null, (NetworkRegistration != Registration.Registerd ? 0 : SignalQuality));
+                NetworkStatusEvent?.Invoke(null, (NetworkRegistration != Registration.Registered ? 0 : SignalQuality));
 
             if (!CallForwardingActive && !IsCallForewardingActive())
                 SetCallForewarding(CallForwardingNumber);
@@ -62,6 +62,18 @@ namespace MelBoxGsm
         }
 
         /// <summary>
+        /// Legt fest, ob Änderungen in der Mobilfunknetzregistrierung unaufgefordert gemeldet werden sollen.
+        /// Siehe 'AT+CREG' Kap. 8.4 (Seite 190)
+        /// </summary>
+        /// <param name="isActive"></param>
+        private static void SetNetworkRegistrationChangeNotification(bool isActive = true)
+        {
+            _ = Port.Ask("AT+CREG=" + (isActive ? "1" : "0"));
+
+            //Änderungen werden unaufgefordert mit '+CREG: <stat>' angezeigt
+        }
+
+        /// <summary>
         /// Fragt ab, ob das Modem im Mobilfunnetz registriert ist.
         /// </summary>
         /// <returns>true = online</returns>
@@ -90,8 +102,6 @@ namespace MelBoxGsm
                     NetworkRegistration = (Registration)status;
                     result = true;
                 }
-
-
             }
 
             return result;

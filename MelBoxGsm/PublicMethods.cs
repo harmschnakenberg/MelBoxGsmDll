@@ -41,6 +41,7 @@ namespace MelBoxGsm
             GetProviderName();
             GetSmsServiceCenterAddress();
             SetGsmMemory();
+            SetNetworkRegistrationChangeNotification();
             CheckNetworkConnection(null, null);          
             SetNewSmsRecNotification();
             SetCallForewarding(CallForwardingNumber);
@@ -58,8 +59,12 @@ namespace MelBoxGsm
         /// </summary>
         public static void ModemShutdown()
         {
-            Port.DiscardInBuffer();
-            Port.DiscardOutBuffer();
+            if (Port == null) return;
+            if (Port.IsOpen)
+            {
+                Port.DiscardInBuffer();
+                Port.DiscardOutBuffer();
+            }
             Port.Close(); //Calling Close is equal to calling Dispose(true)
         }
 

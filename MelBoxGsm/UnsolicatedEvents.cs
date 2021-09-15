@@ -51,7 +51,12 @@ namespace MelBoxGsm
 
             if (m4.Success && int.TryParse(m1.Groups[1].Value, out int status))
             {
-                NetworkRegistration = (Registration)status;
+                Registration currentStatus = (Registration)status;
+                
+                if (currentStatus == Registration.Registered && currentStatus != NetworkRegistration)
+                    SetupModem();
+                
+                NetworkRegistration = currentStatus;
                 show = true;
             }
 
@@ -67,13 +72,14 @@ namespace MelBoxGsm
 
         /// <summary>
         /// Der SIM-Karten-Einschub oder die Verbidnung zur SIM-Karte haben sich geändert. 
+        /// Siehe 'AT^SCKS' Kap. 14.3 (Seite 396f)
         /// </summary>
         /// <param name="val"></param>
         private static void SimTrayIndicator(string val)
         {
             if (int.TryParse(val, out int SimTrayStatus))
             {
-                if ((Registration)SimTrayStatus == Registration.Registerd)
+                if (SimTrayStatus == 1) //0: keine Simkarte gefunden, 1: SIM eingelegt, 2:Schnittstelle Simkarte deaktiviert: Neustart Modem erforderlich
                     SetupModem();
                 else
                 {

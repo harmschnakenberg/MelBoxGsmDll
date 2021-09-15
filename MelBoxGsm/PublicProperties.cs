@@ -37,7 +37,7 @@ namespace MelBoxGsm
         public enum Registration
         {
             NotRegistered = 0,
-            Registerd = 1,
+            Registered = 1,
             Searching = 2,
             Denied = 3,
             Unknown = 4,

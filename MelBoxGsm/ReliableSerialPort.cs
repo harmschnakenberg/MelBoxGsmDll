@@ -78,8 +78,9 @@ namespace MelBoxGsm
                 string errorText = $"Der COM-Port {base.PortName} ist nicht bereit. Das Programm wird beendet.";
                 Console.WriteLine(errorText);
                 base.Close();
-                Log.Error(errorText, 102);                
-                Environment.Exit(102);
+                Log.Error(errorText, 102);
+
+                SerialPortUnavailableEvent?.Invoke(null, 102);
             }
         }
 
@@ -195,7 +196,10 @@ namespace MelBoxGsm
         /// </summary>
         public static event SerialErrorReceivedEventHandler SerialPortErrorEvent;
 
-
+        /// <summary>
+        /// Wird ausgelöst, wenn vom GSM-Modem eine Fehlermeldung zurückggegeben wird.
+        /// </summary>
+        public static event EventHandler<int> SerialPortUnavailableEvent;
 
     }
 }
